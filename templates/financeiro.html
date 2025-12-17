@@ -29,8 +29,8 @@
   </form>
 
   <!-- Cards -->
-  <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-6 g-3 mb-4">
-    <div class="col">
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
       <div class="card">
         <div class="card-body">
           <div class="text-muted">Saldo anterior</div>
@@ -46,7 +46,7 @@
         </div>
       </div>
     </div>
-    <div class="col">
+    <div class="col-md-3">
       <div class="card">
         <div class="card-body">
           <div class="text-muted">Entradas (Mercado Pago)</div>
@@ -54,7 +54,7 @@
         </div>
       </div>
     </div>
-    <div class="col">
+    <div class="col-md-2">
       <div class="card">
         <div class="card-body">
           <div class="text-muted">Devoluções</div>
@@ -62,7 +62,7 @@
         </div>
       </div>
     </div>
-    <div class="col">
+    <div class="col-md-2">
       <div class="card">
         <div class="card-body">
           <div class="text-muted">Retiradas</div>
@@ -70,15 +70,7 @@
         </div>
       </div>
     </div>
-    <div class="col">
-      <div class="card">
-        <div class="card-body">
-          <div class="text-muted">Tarifas ML</div>
-          <div class="h4 mb-0">R$ {{ '%.2f'|format(tarifas_ml) }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="col">
+    <div class="col-md-2">
       <div class="card border-2">
         <div class="card-body">
           <div class="text-muted">Saldo atual</div>

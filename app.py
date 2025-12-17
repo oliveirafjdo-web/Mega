@@ -1,12 +1,8 @@
 import os
 from datetime import datetime, date, timedelta
 from io import BytesIO
-import requests
-import base64
-import re
-import time
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
@@ -17,18 +13,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 import pandas as pd
-
-try:
-    from pypdf import PdfReader, PdfWriter
-    print("DEBUG: pypdf importado com sucesso!")
-except ImportError:
-    try:
-        from PyPDF2 import PdfReader, PdfWriter
-        print("DEBUG: PyPDF2 importado com sucesso!")
-    except ImportError:
-        PdfReader = None
-        PdfWriter = None
-        print("DEBUG: NENHUMA biblioteca PDF encontrada!")
 
 # --------------------------------------------------------------------
 # Configuração de banco: Postgres em produção, SQLite em desenvolvimento
@@ -73,14 +57,6 @@ usuarios = Table(
 
 # Criar todas as tabelas no banco de dados
 metadata.create_all(engine)
-
-# Importar dados automaticamente se banco estiver vazio (apenas em produção)
-if raw_db_url:  # Só em produção (PostgreSQL)
-    try:
-        from auto_import import auto_import_data_if_empty
-        auto_import_data_if_empty(engine)
-    except Exception as e:
-        print(f"⚠️ Aviso: Não foi possível importar dados automaticamente: {e}")
 
 # Classe User para Flask-Login
 class User(UserMixin):
@@ -139,13 +115,49 @@ def logout_view():
     logout_user()
     flash("Logout realizado!", "success")
     return redirect(url_for("login_view"))
+import os
+from datetime import datetime, date, timedelta
+from io import BytesIO
+
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from werkzeug.utils import secure_filename
+
+from sqlalchemy import (
+    create_engine, MetaData, Table, Column, Integer, String, Float,
+    ForeignKey, func, select, insert, update, delete, inspect, text
+)
+from sqlalchemy.engine import Engine
+import pandas as pd
 
 # --------------------------------------------------------------------
-# Definição das tabelas
+# Configuração de banco: Postgres em produção, SQLite em desenvolvimento
+# --------------------------------------------------------------------
+# Detecta Postgres (Render) ou cai para SQLite local
+raw_db_url = os.environ.get("DATABASE_URL")
+
+if raw_db_url:
+    # Render costuma entregar "postgres://", mas o SQLAlchemy quer "postgresql+psycopg2://"
+    if raw_db_url.startswith("postgres://"):
+        raw_db_url = raw_db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    DATABASE_URL = raw_db_url
+else:
+    DATABASE_URL = "sqlite:///metrifiy.db"
+UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
+
+app = Flask(__name__)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.secret_key = os.environ.get("SECRET_KEY", "metrifypremium-secret")
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+engine: Engine = create_engine(DATABASE_URL, future=True)
+metadata = MetaData()
+
+ # --------------------------------------------------------------------
+ # Definição das tabelas
 # --------------------------------------------------------------------
 # Rota para excluir lote de vendas
 @app.route("/excluir_lote_venda/<path:lote>", methods=["POST"])
-@login_required
 def excluir_lote_venda(lote):
     print(f"[DEBUG] Excluindo lote de vendas: {lote}")
     with engine.begin() as conn:
@@ -388,55 +400,162 @@ def normalize_df_uf(df):
 def importar_vendas_ml(caminho_arquivo, engine: Engine):
     lote_id = datetime.now().isoformat(timespec="seconds")
 
-    # OTIMIZAÇÃO: Ler arquivo completo e processar em chunks
-    CHUNK_SIZE = 1500
-    
-    print(f"⚡ Iniciando importação em lotes de {CHUNK_SIZE} vendas...")
-    
-    # Ler arquivo Excel completo (read_excel não suporta chunksize)
-    df_all = pd.read_excel(
+    df = pd.read_excel(
         caminho_arquivo,
         sheet_name="Vendas BR",
         header=5
     )
-    
-    if "N.º de venda" not in df_all.columns:
-        raise ValueError(f"Planilha não está no formato esperado")
+    if "N.º de venda" not in df.columns:
+        raise ValueError("Planilha não está no formato esperado: coluna 'N.º de venda' não encontrada.")
 
-    df_all = df_all[df_all["N.º de venda"].notna()]
+    print("Colunas encontradas:", list(df.columns))
+
+    df = df[df["N.º de venda"].notna()]
     
-    # normaliza coluna UF (silencioso)
-    uf_col, not_rec = normalize_df_uf(df_all)
-    
-    total_vendas = len(df_all)
+    # normaliza coluna UF se existir
+    uf_col, not_rec = normalize_df_uf(df)
+    if uf_col and not_rec:
+        # salva relatório de valores não reconhecidos
+        try:
+            rpt_path = os.path.join(app.config["UPLOAD_FOLDER"], f"uf_not_recognized_settlement_{lote_id}.csv")
+            pd.DataFrame([{'original': o, 'converted': c} for o, c in not_rec]).to_csv(rpt_path, index=False)
+            print(f"Relatório UF não reconhecidos salvo em: {rpt_path}")
+        except Exception:
+            print("Falha ao salvar relatório de UF não reconhecidos.")
+
     vendas_importadas = 0
     vendas_sem_sku = 0
     vendas_sem_produto = 0
-    chunk_num = 0
-    
-    # Processar em chunks
-    for i in range(0, total_vendas, CHUNK_SIZE):
-        chunk_num += 1
-        df_chunk = df_all.iloc[i:i+CHUNK_SIZE].copy()
-        
-        # Processar este chunk
-        result = _processar_chunk_vendas_ml(df_chunk, engine, lote_id)
-        vendas_importadas += result['importadas']
-        vendas_sem_sku += result['sem_sku']
-        vendas_sem_produto += result['sem_produto']
-        
-        print(f"✓ Lote {chunk_num}: +{result['importadas']} vendas (total: {vendas_importadas}/{total_vendas})")
-        
-        # Limpar memória
-        del df_chunk
-        import gc
-        gc.collect()
-    
-    # Limpar dataframe completo
-    del df_all
-    import gc
-    gc.collect()
-    
+
+    with engine.begin() as conn:
+        for _, row in df.iterrows():
+            sku = str(row.get("SKU") or "").strip()
+            titulo = str(row.get("Título do anúncio") or "").strip()
+
+            produto_row = None
+
+            if sku:
+                produto_row = conn.execute(
+                    select(produtos.c.id, produtos.c.custo_unitario)
+                    .where(produtos.c.sku == sku)
+                ).mappings().first()
+            else:
+                # tenta pelo nome do produto = título do anúncio
+                if titulo:
+                    produto_row = conn.execute(
+                        select(produtos.c.id, produtos.c.custo_unitario)
+                        .where(produtos.c.nome == titulo)
+                    ).mappings().first()
+
+            if not sku and not produto_row:
+                vendas_sem_sku += 1
+                continue
+
+            if not produto_row:
+                vendas_sem_produto += 1
+                continue
+
+            produto_id = produto_row["id"]
+            custo_unitario = float(produto_row["custo_unitario"] or 0.0)
+
+            data_venda_raw = row.get("Data da venda")
+            data_venda = parse_data_venda(data_venda_raw)
+            unidades = row.get("Unidades")
+            try:
+                unidades = int(unidades) if unidades == unidades else 0
+            except Exception:
+                unidades = 0
+
+            total_brl = row.get("Total (BRL)")
+            try:
+                receita_total = float(total_brl) if total_brl == total_brl else 0.0
+            except Exception:
+                receita_total = 0.0
+
+            preco_medio_venda = receita_total / unidades if unidades > 0 else 0.0
+            custo_total = custo_unitario * unidades
+
+            # Comissão Mercado Livre a partir da coluna 'Tarifa de venda e impostos (BRL)'
+            tarifa = row.get("Tarifa de venda e impostos (BRL)")
+            try:
+                comissao_ml = float(tarifa) if tarifa == tarifa else 0.0
+            except Exception:
+                comissao_ml = 0.0
+            if comissao_ml < 0:
+                comissao_ml = -comissao_ml
+
+            margem_contribuicao = receita_total - custo_total - comissao_ml
+            numero_venda_ml = str(row.get("N.º de venda"))
+            estado = None
+            for col in ["UF", "Estado", "Estado do comprador", "Estado do Cliente"]:
+                if col in df.columns and row.get(col):
+                    estado_raw = row.get(col)
+                    sigla = normalize_uf(estado_raw)
+                    if sigla and isinstance(sigla, str) and len(sigla) == 2:
+                        estado = sigla
+                    else:
+                        # fallback: tentar extrair apenas letras e pegar primeiras 2
+                        import re
+                        letters = re.sub(r'[^A-Za-z]', '', str(estado_raw))
+                        if len(letters) >= 2:
+                            estado = letters[:2].upper()
+                        else:
+                            estado = None
+                    break
+
+            conn.execute(
+                insert(vendas).values(
+                    produto_id=produto_id,
+                    data_venda=data_venda.isoformat() if data_venda else None,
+                    quantidade=unidades,
+                    preco_venda_unitario=preco_medio_venda,
+                    receita_total=receita_total,
+                    comissao_ml=comissao_ml,
+                    custo_total=custo_total,
+                    margem_contribuicao=margem_contribuicao,
+                    origem="Mercado Livre",
+                    numero_venda_ml=numero_venda_ml,
+                    lote_importacao=lote_id,
+                    estado=estado,
+                )
+            )
+
+            # --- Insere lançamento financeiro no caixa Mercado Pago (valor líquido) ---
+            try:
+                external_id = str(numero_venda_ml) if numero_venda_ml else None
+                already = None
+                if external_id:
+                    already = conn.execute(
+                        select(finance_transactions.c.id)
+                        .where(finance_transactions.c.external_id_mp == external_id)
+                        .where(finance_transactions.c.tipo == 'MP_NET')
+                    ).mappings().first()
+
+                if not already:
+                    valor_liquido = float(receita_total or 0.0) - float(comissao_ml or 0.0)
+                    conn.execute(
+                        insert(finance_transactions).values(
+                            data_lancamento=(data_venda.isoformat() if data_venda else None),
+                            tipo="MP_NET",
+                            valor=valor_liquido,
+                            origem="mercado_pago",
+                            external_id_mp=external_id,
+                            descricao=f"Venda ML {external_id}",
+                            criado_em=datetime.now().isoformat(timespec="seconds"),
+                            lote_importacao=lote_id,
+                        )
+                    )
+            except Exception as e:
+                print(f"Erro ao inserir transação financeira para venda {numero_venda_ml}: {e}")
+
+            conn.execute(
+                update(produtos)
+                .where(produtos.c.id == produto_id)
+                .values(estoque_atual=produtos.c.estoque_atual - unidades)
+            )
+
+            vendas_importadas += 1
+
     return {
         "lote_id": lote_id,
         "vendas_importadas": vendas_importadas,
@@ -445,190 +564,19 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
     }
 
 
-def _processar_chunk_vendas_ml(df, engine: Engine, lote_id: str):
-    """Processa um chunk de vendas ML - com commit após cada chunk para evitar timeout de conexão"""
-
-    vendas_importadas = 0
-    vendas_sem_sku = 0
-    vendas_sem_produto = 0
-    
-    # Processar em mini-lotes de 50 vendas para commits frequentes
-    BATCH_SIZE = 50
-    total_rows = len(df)
-    
-    for batch_start in range(0, total_rows, BATCH_SIZE):
-        batch_end = min(batch_start + BATCH_SIZE, total_rows)
-        df_batch = df.iloc[batch_start:batch_end]
-        
-        # Commit após cada mini-lote para não perder conexão com PostgreSQL
-        with engine.begin() as conn:
-            for _, row in df_batch.iterrows():
-                sku = str(row.get("SKU") or "").strip()
-                titulo = str(row.get("Título do anúncio") or "").strip()
-
-                produto_row = None
-
-                # Tentar buscar por SKU primeiro
-                if sku:
-                    produto_row = conn.execute(
-                        select(produtos.c.id, produtos.c.custo_unitario)
-                        .where(produtos.c.sku == sku)
-                    ).mappings().first()
-                
-                # Se não encontrou por SKU, buscar pelo título
-                if not produto_row and titulo:
-                    produto_row = conn.execute(
-                        select(produtos.c.id, produtos.c.custo_unitario)
-                        .where(produtos.c.nome == titulo)
-                    ).mappings().first()
-
-                # Se não tem SKU E não tem título, marcar como sem SKU
-                if not sku and not titulo:
-                    vendas_sem_sku += 1
-                    continue
-
-                # Se não encontrou produto nem por SKU nem por título
-                if not produto_row:
-                    if not sku:
-                        vendas_sem_sku += 1
-                    else:
-                        vendas_sem_produto += 1
-                    continue
-
-                produto_id = produto_row["id"]
-                custo_unitario = float(produto_row["custo_unitario"] or 0.0)
-
-                data_venda_raw = row.get("Data da venda")
-                data_venda = parse_data_venda(data_venda_raw)
-                unidades = row.get("Unidades")
-                try:
-                    unidades = int(unidades) if unidades == unidades else 0
-                except Exception:
-                    unidades = 0
-
-                # Verificar valor total - se for 0, é venda cancelada
-                total_brl = row.get("Total (BRL)")
-                try:
-                    total_brl = float(total_brl) if total_brl == total_brl else 0.0
-                except Exception:
-                    total_brl = 0.0
-                
-                # Se total é 0, venda cancelada - pular
-                if total_brl == 0.0:
-                    continue
-
-                # Coluna H: Receita por produtos (BRL) - valor bruto da venda
-                receita_bruta = row.get("Receita por produtos (BRL)")
-                try:
-                    receita_total = float(receita_bruta) if receita_bruta == receita_bruta else 0.0
-                except Exception:
-                    receita_total = 0.0
-
-                # Se tem quantidade mas receita zerada, buscar preço médio do produto
-                if unidades > 0 and receita_total == 0.0:
-                    preco_medio_produto = conn.execute(
-                        select(func.avg(vendas.c.preco_venda_unitario))
-                        .where(vendas.c.produto_id == produto_id)
-                        .where(vendas.c.preco_venda_unitario > 0)
-                    ).scalar()
-                    
-                    if preco_medio_produto:
-                        receita_total = float(preco_medio_produto) * unidades
-                
-                preco_medio_venda = receita_total / unidades if unidades > 0 else 0.0
-                custo_total = custo_unitario * unidades
-
-                # Comissão Mercado Livre a partir da coluna 'Tarifa de venda e impostos (BRL)'
-                tarifa = row.get("Tarifa de venda e impostos (BRL)")
-                try:
-                    comissao_ml = float(tarifa) if tarifa == tarifa else 0.0
-                except Exception:
-                    comissao_ml = 0.0
-                if comissao_ml < 0:
-                    comissao_ml = -comissao_ml
-                
-                # Se comissão zerada mas tem receita, calcular comissão média (aproximadamente 15%)
-                if comissao_ml == 0.0 and receita_total > 0.0:
-                    comissao_media = conn.execute(
-                        select(func.avg(vendas.c.comissao_ml))
-                        .where(vendas.c.produto_id == produto_id)
-                        .where(vendas.c.comissao_ml > 0)
-                    ).scalar()
-                    
-                    if comissao_media:
-                        comissao_ml = float(comissao_media)
-                    else:
-                        # Fallback: 15% do valor de venda
-                        comissao_ml = receita_total * 0.15
-
-                margem_contribuicao = receita_total - custo_total - comissao_ml
-                numero_venda_ml = str(row.get("N.º de venda"))
-                estado = None
-                # Coluna AL (Estado.1) tem prioridade
-                for col in ["Estado.1", "UF", "Estado", "Estado do comprador", "Estado do Cliente"]:
-                    if col in df.columns and row.get(col):
-                        estado_raw = row.get(col)
-                        sigla = normalize_uf(estado_raw)
-                        if sigla and isinstance(sigla, str) and len(sigla) == 2:
-                            estado = sigla
-                        else:
-                            # fallback: tentar extrair apenas letras e pegar primeiras 2
-                            import re
-                            letters = re.sub(r'[^A-Za-z]', '', str(estado_raw))
-                            if len(letters) >= 2:
-                                estado = letters[:2].upper()
-                            else:
-                                estado = None
-                        break
-
-                conn.execute(
-                    insert(vendas).values(
-                        produto_id=produto_id,
-                        data_venda=data_venda.isoformat() if data_venda else None,
-                        quantidade=unidades,
-                        preco_venda_unitario=preco_medio_venda,
-                        receita_total=receita_total,
-                        comissao_ml=comissao_ml,
-                        custo_total=custo_total,
-                        margem_contribuicao=margem_contribuicao,
-                        origem="Mercado Livre",
-                        numero_venda_ml=numero_venda_ml,
-                        lote_importacao=lote_id,
-                        estado=estado,
-                    )
-                )
-
-                # Transações financeiras desabilitadas temporariamente para velocidade
-                # (podem ser adicionadas depois via script separado se necessário)
-
-                conn.execute(
-                    update(produtos)
-                    .where(produtos.c.id == produto_id)
-                    .values(estoque_atual=produtos.c.estoque_atual - unidades)
-                )
-
-                vendas_importadas += 1
-    
-    return {
-        "importadas": vendas_importadas,
-        "sem_sku": vendas_sem_sku,
-        "sem_produto": vendas_sem_produto,
-    }
-
-
 # --------------------------------------------------------------------
 # Importação de produtos via Excel
 # --------------------------------------------------------------------
 def importar_produtos_excel(caminho_arquivo, engine: Engine):
-    # OTIMIZAÇÃO: Limitar linhas para economizar memória
-    MAX_ROWS = 500
-    df = pd.read_excel(caminho_arquivo, header=0, nrows=MAX_ROWS)
+    df = pd.read_excel(caminho_arquivo, header=0)  # assume header in first row
 
-    # normaliza coluna UF se houver (sem salvar relatório)
+    # normaliza coluna UF se houver (algumas planilhas de produtos podem conter UF)
     try:
         uf_col, not_rec = normalize_df_uf(df)
         if uf_col and not_rec:
-            print(f"⚠️ {len(not_rec)} UFs não reconhecidos (ignorados)")
+            rpt = str(caminho_arquivo).replace('.xlsx', '_uf_not_recognized.csv')
+            pd.DataFrame([{'original': o, 'converted': c} for o, c in not_rec]).to_csv(rpt, index=False)
+            print(f"Relatório UF não reconhecidos salvo em: {rpt}")
     except Exception:
         pass
 
@@ -638,71 +586,59 @@ def importar_produtos_excel(caminho_arquivo, engine: Engine):
     produtos_importados = 0
     produtos_atualizados = 0
     erros = []
-    
-    # OTIMIZAÇÃO: Processar em lotes pequenos
-    BATCH_SIZE = 50
-    total_rows = len(df)
-    
-    for batch_start in range(0, total_rows, BATCH_SIZE):
-        batch_end = min(batch_start + BATCH_SIZE, total_rows)
-        df_batch = df.iloc[batch_start:batch_end]
-        
-        with engine.begin() as conn:
-            for _, row in df_batch.iterrows():
-                sku = str(row.get("SKU") or "").strip()
-                if not sku:
-                    erros.append("Linha sem SKU")
-                    continue
 
-                nome = str(row.get("Nome") or "").strip() or sku  # default to SKU if no name
-                estoque = row.get("Estoque")
-                try:
-                    estoque = int(estoque) if estoque == estoque else 0
-                except Exception:
-                    estoque = 0
+    with engine.begin() as conn:
+        for _, row in df.iterrows():
+            sku = str(row.get("SKU") or "").strip()
+            if not sku:
+                erros.append("Linha sem SKU")
+                continue
 
-                custo = row.get("Custo")
-                try:
-                    custo = float(custo) if custo == custo else 0.0
-                except Exception:
-                    custo = 0.0
+            nome = str(row.get("Nome") or "").strip() or sku  # default to SKU if no name
+            estoque = row.get("Estoque")
+            try:
+                estoque = int(estoque) if estoque == estoque else 0
+            except Exception:
+                estoque = 0
 
-                
-                # check if product exists
-                produto_row = conn.execute(
-                    select(produtos.c.id, produtos.c.estoque_atual)
-                    .where(produtos.c.sku == sku)
-                ).mappings().first()
+            custo = row.get("Custo")
+            try:
+                custo = float(custo) if custo == custo else 0.0
+            except Exception:
+                custo = 0.0
 
-                if produto_row:
-                    # update
-                    conn.execute(
-                        update(produtos)
-                        .where(produtos.c.id == produto_row["id"])
-                        .values(
-                            nome=nome,
-                            custo_unitario=custo,
-                            estoque_atual=estoque,
-                        )
+            
+            # check if product exists
+            produto_row = conn.execute(
+                select(produtos.c.id, produtos.c.estoque_atual)
+                .where(produtos.c.sku == sku)
+            ).mappings().first()
+
+            if produto_row:
+                # update
+                conn.execute(
+                    update(produtos)
+                    .where(produtos.c.id == produto_row["id"])
+                    .values(
+                        nome=nome,
+                        custo_unitario=custo,
+                        estoque_atual=estoque,
                     )
-                    produtos_atualizados += 1
-                else:
-                    # insert
-                    conn.execute(
-                        insert(produtos).values(
-                            nome=nome,
-                            sku=sku,
-                            custo_unitario=custo,
-                            preco_venda_sugerido=custo * 1.5,  # default markup
-                            estoque_inicial=estoque,
-                            estoque_atual=estoque,
-                        )
+                )
+                produtos_atualizados += 1
+            else:
+                # insert
+                conn.execute(
+                    insert(produtos).values(
+                        nome=nome,
+                        sku=sku,
+                        custo_unitario=custo,
+                        preco_venda_sugerido=custo * 1.5,  # default markup
+                        estoque_inicial=estoque,
+                        estoque_atual=estoque,
                     )
-                    produtos_importados += 1
-        
-        # Liberar memória após cada lote
-        import gc
-        gc.collect()
+                )
+                produtos_importados += 1
 
     return {
         "produtos_importados": produtos_importados,
@@ -715,7 +651,6 @@ def importar_produtos_excel(caminho_arquivo, engine: Engine):
 # Rotas principais
 # --------------------------------------------------------------------
 @app.route("/")
-@login_required
 def dashboard():
     # --- filtro de período ---
     data_inicio = request.args.get("data_inicio") or ""
@@ -844,7 +779,6 @@ def dashboard():
 
 # ---------------- PRODUTOS ----------------
 @app.route("/produtos")
-@login_required
 def lista_produtos():
     with engine.connect() as conn:
         produtos_rows = conn.execute(select(produtos).order_by(produtos.c.nome)).mappings().all()
@@ -852,7 +786,6 @@ def lista_produtos():
 
 
 @app.route("/produtos/novo", methods=["GET", "POST"])
-@login_required
 def novo_produto():
     if request.method == "POST":
         nome = request.form["nome"]
@@ -879,7 +812,6 @@ def novo_produto():
 
 
 @app.route("/produtos/<int:produto_id>/editar", methods=["GET", "POST"])
-@login_required
 def editar_produto(produto_id):
     if request.method == "POST":
         nome = request.form["nome"]
@@ -916,7 +848,6 @@ def editar_produto(produto_id):
 
 
 @app.route("/produtos/<int:produto_id>/excluir", methods=["POST"])
-@login_required
 def excluir_produto(produto_id):
     with engine.begin() as conn:
         conn.execute(delete(produtos).where(produtos.c.id == produto_id))
@@ -925,7 +856,6 @@ def excluir_produto(produto_id):
 
 
 @app.route("/produtos/importar", methods=["GET", "POST"])
-@login_required
 def importar_produtos_view():
     if request.method == "POST":
         if "arquivo" not in request.files:
@@ -964,15 +894,10 @@ from math import ceil
 VENDAS_POR_PAGINA = 100
 
 @app.route("/vendas")
-@login_required
 def lista_vendas():
     data_inicio = request.args.get("data_inicio") or ""
     data_fim = request.args.get("data_fim") or ""
     page = int(request.args.get("page", 1))
-
-    # percentuais de imposto e despesas do período (mesma lógica do dashboard)
-    imposto_percent = 0.0
-    despesas_percent = 0.0
 
     # =======================
     # PERÍODO PADRÃO: ÚLTIMOS 30 DIAS
@@ -990,8 +915,6 @@ def lista_vendas():
     # defaults para o gráfico pizza (para não quebrar template)
     pizza_estados_labels = []
     pizza_estados_valores = []
-    pizza_produtos_labels = []
-    pizza_produtos_valores = []
 
     with engine.connect() as conn:
         # =======================
@@ -1045,13 +968,6 @@ def lista_vendas():
             select(produtos.c.id, produtos.c.nome).order_by(produtos.c.nome)
         ).mappings().all()
 
-        # Busca configuração de impostos/despesas para usar no cálculo do lucro líquido
-        cfg = conn.execute(
-            select(configuracoes).where(configuracoes.c.id == 1)
-        ).mappings().first()
-        imposto_percent = float(cfg["imposto_percent"]) if cfg else 0.0
-        despesas_percent = float(cfg["despesas_percent"]) if cfg else 0.0
-
         # =======================
         # GRÁFICO PIZZA POR ESTADO (UF) - RESPEITA FILTRO
         # =======================
@@ -1076,50 +992,18 @@ def lista_vendas():
             estados_rows = conn.execute(query_estados).mappings().all()
 
             # ✅ Pizza por Receita (padrão)
-            # Formatar siglas dos estados: maiúsculas e limitado a 2 caracteres
-            pizza_estados_labels = []
-            pizza_estados_valores = []
-            for r in estados_rows:
-                uf = str(r["uf"] or "N/I").strip().upper()[:2]
-                if uf:
-                    pizza_estados_labels.append(uf)
-                    pizza_estados_valores.append(float(r["total_receita"] or 0))
+            pizza_estados_labels = [r["uf"] for r in estados_rows]
+            pizza_estados_valores = [float(r["total_receita"] or 0) for r in estados_rows]
 
             # Se quiser por quantidade, use isto no lugar:
             # pizza_estados_valores = [int(r["qtd_vendas"] or 0) for r in estados_rows]
 
-        # =======================
-        # NOVO: PIZZA POR PRODUTO (SKU) - RESPEITA FILTRO
-        # =======================
-        query_produtos = select(
-            produtos.c.sku.label("sku"),
-            produtos.c.nome.label("nome"),
-            func.coalesce(func.sum(vendas.c.receita_total), 0).label("total_receita"),
-            func.count().label("qtd_vendas"),
-        ).select_from(vendas.join(produtos)).where(
-            vendas.c.data_venda >= data_inicio,
-            vendas.c.data_venda <= data_fim + "T23:59:59"
-        ).group_by(produtos.c.sku, produtos.c.nome) \
-         .order_by(func.coalesce(func.sum(vendas.c.receita_total), 0).desc()) \
-         .limit(10)  # top 10 produtos
-
-        produtos_rows_grafico = conn.execute(query_produtos).mappings().all()
-
-        pizza_produtos_labels = []
-        pizza_produtos_valores = []
-        for r in produtos_rows_grafico:
-            sku = str(r["sku"] or "S/SKU").strip().upper()[:20]  # limita a 20 caracteres
-            if sku:
-                pizza_produtos_labels.append(sku)
-                pizza_produtos_valores.append(float(r["total_receita"] or 0))
-
     # =======================
-    # GRÁFICOS 30 DIAS (FATURAMENTO / QTD / LUCRO / RECEITA LÍQUIDA)
+    # GRÁFICOS 30 DIAS (FATURAMENTO / QTD / LUCRO)
     # =======================
     faturamento_dia = {}
     quantidade_dia = {}
     lucro_dia = {}
-    receita_liquida_dia = {}  # NOVO: receita bruta - comissão ML
 
     for v in vendas_all:
         if not v["data_venda"]:
@@ -1134,19 +1018,13 @@ def lista_vendas():
         margem = float(v["margem_contribuicao"] or 0)
         qtd = float(v["quantidade"] or 0)
 
-        # comissão ML: receita - custo - margem
+        # lucro líquido do dia (mesma lógica do dashboard)
         comissao_ml = max(0.0, (receita - custo) - margem)
-        
-        # NOVO: receita líquida = receita bruta - comissão ML
-        receita_liquida = receita - comissao_ml
-        
-        # lucro líquido do dia
         lucro = receita - custo - comissao_ml
 
         faturamento_dia[dt] = faturamento_dia.get(dt, 0) + receita
         quantidade_dia[dt] = quantidade_dia.get(dt, 0) + qtd
         lucro_dia[dt] = lucro_dia.get(dt, 0) + lucro
-        receita_liquida_dia[dt] = receita_liquida_dia.get(dt, 0) + receita_liquida  # NOVO
 
     # Últimos 30 dias ordenados
     dias = [hoje - timedelta(days=i) for i in range(29, -1, -1)]
@@ -1154,7 +1032,6 @@ def lista_vendas():
     grafico_faturamento = [faturamento_dia.get(d, 0) for d in dias]
     grafico_quantidade = [quantidade_dia.get(d, 0) for d in dias]
     grafico_lucro = [lucro_dia.get(d, 0) for d in dias]
-    grafico_receita_liquida = [receita_liquida_dia.get(d, 0) for d in dias]  # NOVO
 
     # =========================
     # COMPARATIVO MÊS ATUAL x MÊS ANTERIOR
@@ -1233,25 +1110,10 @@ def lista_vendas():
     # =========================
     # TOTAIS (RESPEITAM O FILTRO DA TELA)
     # =========================
-    total_qtd = sum(float(q.get("quantidade") or 0) for q in vendas_all)
-    receita_total = sum(float(q.get("receita_total") or 0) for q in vendas_all)
-    custo_total = sum(float(q.get("custo_total") or 0) for q in vendas_all)
-    margem_total = sum(float(q.get("margem_contribuicao") or 0) for q in vendas_all)
-
-    comissao_total = max(0.0, (receita_total - custo_total) - margem_total)
-    imposto_total = receita_total * (imposto_percent / 100.0)
-    despesas_total = receita_total * (despesas_percent / 100.0)
-    lucro_liquido_total = receita_total - custo_total - comissao_total - imposto_total - despesas_total
-
     totais = {
-        "qtd": total_qtd,
-        "receita": receita_total,
-        "custo": custo_total,
-        "margem": margem_total,
-        "comissao": comissao_total,
-        "imposto": imposto_total,
-        "despesas": despesas_total,
-        "lucro_liquido": lucro_liquido_total,
+        "qtd": sum(float(q.get("quantidade") or 0) for q in vendas_all),
+        "receita": sum(float(q.get("receita_total") or 0) for q in vendas_all),
+        "custo": sum(float(q.get("custo_total") or 0) for q in vendas_all),
     }
 
     return render_template(
@@ -1266,14 +1128,11 @@ def lista_vendas():
         grafico_faturamento=grafico_faturamento,
         grafico_quantidade=grafico_quantidade,
         grafico_lucro=grafico_lucro,
-        grafico_receita_liquida=grafico_receita_liquida,  # NOVO
         grafico_cmp_labels=grafico_cmp_labels,
         grafico_cmp_atual=grafico_cmp_atual,
         grafico_cmp_anterior=grafico_cmp_anterior,
         pizza_estados_labels=pizza_estados_labels,
         pizza_estados_valores=pizza_estados_valores,
-        pizza_produtos_labels=pizza_produtos_labels,
-        pizza_produtos_valores=pizza_produtos_valores,
         total_pages=total_pages,
         current_page=page
     )
@@ -1281,7 +1140,6 @@ def lista_vendas():
 
 # ---------------- IMPORT / EXPORT ----------------
 @app.route("/importar_ml", methods=["GET", "POST"])
-@login_required
 def importar_ml_view():
     if request.method == "POST":
         if "arquivo" not in request.files:
@@ -1312,7 +1170,6 @@ def importar_ml_view():
 
 
 @app.route("/exportar_consolidado")
-@login_required
 def exportar_consolidado():
     """Exporta planilha de consolidação das vendas."""
     with engine.connect() as conn:
@@ -1348,7 +1205,6 @@ def exportar_consolidado():
 
 
 @app.route("/exportar_template")
-@login_required
 def exportar_template():
     """Exporta o modelo de planilha para preenchimento manual (SKU, Título, Quantidade, Receita, Comissao, PrecoMedio)."""
     cols = ["SKU", "Título", "Quantidade", "Receita", "Comissao", "PrecoMedio"]
@@ -1368,7 +1224,6 @@ def exportar_template():
 # ---------------- ESTOQUE / AJUSTES ----------------
 # ---------------- ESTOQUE / AJUSTES ----------------
 @app.route("/estoque")
-@login_required
 def estoque_view():
     """Visão de estoque com médias reais dos últimos 30 dias
     + receita potencial (bruta - comissão ML)
@@ -1661,7 +1516,6 @@ def ajuste_estoque_view():
 
 # ---------------- CONFIGURAÇÕES ----------------
 @app.route("/configuracoes", methods=["GET", "POST"])
-@login_required
 def configuracoes_view():
     if request.method == "POST":
         imposto_percent = float(request.form.get("imposto_percent", 0) or 0)
@@ -1685,7 +1539,6 @@ def configuracoes_view():
 
 # ---------------- RELATÓRIO LUCRO ----------------
 @app.route("/relatorio_lucro")
-@login_required
 def relatorio_lucro():
     """Relatório de lucro detalhado por produto, com filtro de período.
 
@@ -1789,7 +1642,6 @@ def relatorio_lucro():
         data_fim=data_fim,
     )
 @app.route("/relatorio_lucro/exportar")
-@login_required
 def relatorio_lucro_exportar():
     # mesmo critério de período do relatorio_lucro
     data_inicio = request.args.get("data_inicio") or ""
@@ -1896,23 +1748,23 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
     lote_id = datetime.now().isoformat(timespec="seconds")
 
     df = pd.read_excel(caminho_arquivo)
+    # normaliza colunas
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Novos e antigos layouts suportados
-    required_new = [
-        "Data de pagamento",
-        "Tipo de operação",
-        "Número do movimento",
-        "Operação relacionada",
-        "Valor",
-    ]
-    required_old = ["ID DA TRANSAÇÃO NO MERCADO PAGO", "TIPO DE TRANSAÇÃO", "VALOR LÍQUIDO DA TRANSAÇÃO"]
+    # normaliza coluna UF se existir
+    try:
+        uf_col, not_rec = normalize_df_uf(df)
+        if uf_col and not_rec:
+            rpt_path = os.path.join(app.config["UPLOAD_FOLDER"], f"uf_not_recognized_settlement_{lote_id}.csv")
+            pd.DataFrame([{'original': o, 'converted': c} for o, c in not_rec]).to_csv(rpt_path, index=False)
+            print(f"Relatório UF não reconhecidos salvo em: {rpt_path}")
+    except Exception:
+        pass
 
-    use_new = all(col in df.columns for col in required_new)
-    use_old = all(col in df.columns for col in required_old)
-
-    if not use_new and not use_old:
-        raise ValueError("Relatório MP fora do padrão esperado: colunas necessárias não encontradas.")
+    required = ["ID DA TRANSAÇÃO NO MERCADO PAGO", "TIPO DE TRANSAÇÃO", "VALOR LÍQUIDO DA TRANSAÇÃO"]
+    for col in required:
+        if col not in df.columns:
+            raise ValueError(f"Relatório MP fora do padrão esperado: coluna '{col}' não encontrada.")
 
     importadas = 0
     atualizadas = 0
@@ -1923,22 +1775,7 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
 
     with engine.begin() as conn:
         for _, row in df.iterrows():
-            if use_new:
-                external_id = row.get("Número do movimento")
-                tipo_trans = str(row.get("Tipo de operação") or "").strip()
-                oper_rel = str(row.get("Operação relacionada") or "").strip()
-                val = row.get("Valor")
-                dt = _parse_iso_or_none(row.get("Data de pagamento")) or datetime.now()
-            else:
-                external_id = row.get("ID DA TRANSAÇÃO NO MERCADO PAGO")
-                tipo_trans = str(row.get("TIPO DE TRANSAÇÃO") or "").strip()
-                oper_rel = str(row.get("CANAL DE VENDA") or "").strip()
-                val = row.get("VALOR LÍQUIDO DA TRANSAÇÃO")
-                dt = _parse_iso_or_none(row.get("DATA DE LIBERAÇÃO DO DINHEIRO")) \
-                     or _parse_iso_or_none(row.get("DATA DE APROVAÇÃO")) \
-                     or _parse_iso_or_none(row.get("DATA DE ORIGEM")) \
-                     or datetime.now()
-
+            external_id = row.get("ID DA TRANSAÇÃO NO MERCADO PAGO")
             try:
                 external_id = str(int(external_id)) if external_id == external_id else None
             except Exception:
@@ -1947,30 +1784,37 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
             if not external_id or external_id in processed_ids:
                 ignoradas += 1
                 continue
+
             processed_ids.add(external_id)
 
+            tipo_trans = str(row.get("TIPO DE TRANSAÇÃO") or "").strip()
+
+            # valor líquido do MP (entrada real)
+            val = row.get("VALOR LÍQUIDO DA TRANSAÇÃO")
             try:
                 valor = float(val) if val == val else 0.0
             except Exception:
                 valor = 0.0
 
+            # mapeia tipo financeiro
             tipo_fin = "MP_NET"
-            lower_tipo = tipo_trans.lower()
-            if "estorno" in lower_tipo or "chargeback" in lower_tipo or "devolu" in lower_tipo or "contesta" in lower_tipo:
+            if "estorno" in tipo_trans.lower() or "chargeback" in tipo_trans.lower() or "devolu" in tipo_trans.lower() or "contestação" in tipo_trans.lower():
                 tipo_fin = "REFUND"
                 valor = -abs(valor) if valor != 0 else 0.0
-            elif "retirada" in lower_tipo or "saque" in lower_tipo or "payout" in lower_tipo:
+            elif "retirada" in tipo_trans.lower() or "saque" in tipo_trans.lower() or "payouts" in tipo_trans.lower():
                 tipo_fin = "WITHDRAWAL"
                 valor = -abs(valor) if valor != 0 else 0.0
-            elif "tarifa" in lower_tipo:
-                tipo_fin = "FEE_ML"
-                valor = -abs(valor) if valor != 0 else 0.0
-            elif "pagamento" in lower_tipo or "venda" in lower_tipo:
+            elif "pagamento" in tipo_trans.lower():
                 tipo_fin = "MP_NET"
-                valor = abs(valor)
+                valor = abs(valor)  # garantir positivo para vendas
+
+            # data do caixa: preferir liberação
+            dt = _parse_iso_or_none(row.get("DATA DE LIBERAÇÃO DO DINHEIRO"))                  or _parse_iso_or_none(row.get("DATA DE APROVAÇÃO"))                  or _parse_iso_or_none(row.get("DATA DE ORIGEM"))                  or datetime.now()
 
             data_lancamento = dt.isoformat()
-            descricao = f"{tipo_trans} - {oper_rel}".strip(" -")
+
+            canal = str(row.get("CANAL DE VENDA") or "").strip()
+            descricao = f"{tipo_trans} - {canal}".strip(" -")
 
             existing = conn.execute(
                 select(finance_transactions.c.id).where(finance_transactions.c.external_id_mp == external_id)
@@ -2009,7 +1853,6 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
 
 
 @app.route("/importar_mp", methods=["GET", "POST"])
-@login_required
 def importar_mp_view():
     if request.method == "POST":
         if "arquivo" not in request.files:
@@ -2062,7 +1905,6 @@ def _date_only(iso_str: str):
 
 
 @app.route("/financeiro", methods=["GET", "POST"])
-@login_required
 def financeiro_view():
     # Ações (saldo inicial, devolução, retirada)
     if request.method == "POST":
@@ -2166,17 +2008,12 @@ def financeiro_view():
             .where(*(filtro + [finance_transactions.c.tipo == "WITHDRAWAL"]))
         ).scalar() or 0.0
 
-        tarifas_ml = conn.execute(
-            select(func.coalesce(func.sum(finance_transactions.c.valor), 0.0))
-            .where(*(filtro + [finance_transactions.c.tipo == "FEE_ML"]))
-        ).scalar() or 0.0
-
         ajustes = conn.execute(
             select(func.coalesce(func.sum(finance_transactions.c.valor), 0.0))
             .where(*(filtro + [finance_transactions.c.tipo == "ADJUSTMENT"]))
         ).scalar() or 0.0
 
-        saldo_periodo = entradas_mp + devolucoes + retiradas + tarifas_ml + ajustes
+        saldo_periodo = entradas_mp + devolucoes + retiradas + ajustes
         saldo_atual = saldo_anterior + saldo_periodo
 
         transacoes = conn.execute(
@@ -2215,7 +2052,6 @@ def financeiro_view():
         entradas_mp=entradas_mp,
         devolucoes=devolucoes,
         retiradas=retiradas,
-        tarifas_ml=tarifas_ml,
         ajustes=ajustes,
         saldo_atual=saldo_atual,
         transacoes=transacoes,
@@ -2240,7 +2076,6 @@ def excluir_lote_financeiro(lote):
 
 
 @app.route("/conciliacao", methods=["GET"])
-@login_required
 def conciliacao_view():
     data_inicio = request.args.get("data_inicio") or (date.today().replace(day=1)).isoformat()
     data_fim = request.args.get("data_fim") or date.today().isoformat()
@@ -2265,18 +2100,11 @@ def conciliacao_view():
             .where(*filtro_v)
         ).scalar() or 0.0
 
-        # MP: receita líquida financeira = MP_NET + FEE_ML (FEE_ML já é negativo)
-        mp_bruta = conn.execute(
+        # MP: receita líquida financeira = MP_NET
+        mp_liquida = conn.execute(
             select(func.coalesce(func.sum(finance_transactions.c.valor), 0.0))
             .where(*(filtro_f + [finance_transactions.c.tipo == "MP_NET"]))
         ).scalar() or 0.0
-        
-        mp_tarifas = conn.execute(
-            select(func.coalesce(func.sum(finance_transactions.c.valor), 0.0))
-            .where(*(filtro_f + [finance_transactions.c.tipo == "FEE_ML"]))
-        ).scalar() or 0.0
-        
-        mp_liquida = mp_bruta + mp_tarifas  # tarifas já são negativas
 
         diferenca_total = ml_liquida - mp_liquida
 
@@ -2330,199 +2158,6 @@ def conciliacao_view():
         diferenca_total=diferenca_total,
         linhas=linhas,
     )
-
-
-# ============================================================
-# ROTA: Imprimir Etiquetas ZPL (Mercado Livre)
-# ============================================================
-@app.route("/etiquetas_zpl", methods=["GET", "POST"])
-@login_required
-def etiquetas_zpl():
-    """
-    Página para inserir código ZPL do Mercado Livre e converter para PDF.
-    Usa a API Labelary para converter ZPL em imagem/PDF.
-    """
-    if request.method == "POST":
-        zpl_code = request.form.get("zpl_code", "").strip()
-        largura_cm = request.form.get("largura_cm", "4").strip()
-        altura_cm = request.form.get("altura_cm", "2.5").strip()
-        quantidade = request.form.get("quantidade", "1").strip()
-        
-        if not zpl_code:
-            flash("Por favor, insira o código ZPL da etiqueta.", "danger")
-            return redirect(url_for("etiquetas_zpl"))
-        
-        try:
-            # Converter cm para polegadas (1 inch = 2.54 cm)
-            largura_inch = float(largura_cm) / 2.54
-            altura_inch = float(altura_cm) / 2.54
-            qtd = int(quantidade)
-            
-            # Formatar com 1 casa decimal
-            size_str = f"{largura_inch:.1f}x{altura_inch:.1f}"
-            
-            # Detectar se há múltiplas etiquetas no código (múltiplos ^XA)
-            # Separar cada etiqueta individual (cada bloco ^XA...^XZ)
-            etiquetas = re.findall(r'\^XA.*?\^XZ', zpl_code, re.DOTALL)
-            num_etiquetas_no_codigo = len(etiquetas)
-            print(f"DEBUG: Detectadas {num_etiquetas_no_codigo} etiquetas no código ZPL")
-            
-            labelary_url = f"http://api.labelary.com/v1/printers/8dpmm/labels/{size_str}/0/"
-            headers = {
-                'Accept': 'application/pdf',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-            
-            if num_etiquetas_no_codigo > 1:
-                # Caso de etiquetas sequenciais diferentes - processar cada uma
-                print(f"DEBUG: Processando {num_etiquetas_no_codigo} etiquetas sequenciais")
-                
-                if not (PdfReader and PdfWriter):
-                    flash("Biblioteca PDF não disponível. Instale pypdf.", "danger")
-                    return redirect(url_for("etiquetas_zpl"))
-                
-                writer = PdfWriter()
-                
-                for idx, etiqueta_zpl in enumerate(etiquetas, 1):
-                    print(f"DEBUG: Processando etiqueta {idx}/{num_etiquetas_no_codigo}")
-                    
-                    # Aguardar um pouco para evitar rate limit da API (429 Too Many Requests)
-                    if idx > 1:
-                        time.sleep(0.5)  # Aguardar 500ms entre requisições
-                    
-                    # Limpar e adicionar ^PQ1
-                    etiqueta_limpa = re.sub(r'\^PQ\d+[^\^]*', '', etiqueta_zpl)
-                    etiqueta_limpa = re.sub(r'\^XZ\s*$', '', etiqueta_limpa)
-                    etiqueta_limpa = f"{etiqueta_limpa}\n^PQ1,0,1,Y^XZ"
-                    
-                    # Converter para PDF com retry em caso de erro 429
-                    max_retries = 3
-                    for tentativa in range(max_retries):
-                        resp = requests.post(labelary_url, data=etiqueta_limpa.encode('utf-8'), headers=headers)
-                        
-                        if resp.status_code == 200:
-                            # Adicionar ao PDF final
-                            pdf_temp = BytesIO(resp.content)
-                            reader_temp = PdfReader(pdf_temp)
-                            writer.add_page(reader_temp.pages[0])
-                            break
-                        elif resp.status_code == 429 and tentativa < max_retries - 1:
-                            # Rate limit - aguardar e tentar novamente
-                            print(f"DEBUG: Rate limit na etiqueta {idx}, aguardando {(tentativa + 1) * 2}s...")
-                            time.sleep((tentativa + 1) * 2)  # Aguardar 2s, 4s, 6s...
-                        else:
-                            print(f"DEBUG: Erro ao processar etiqueta {idx}: Status {resp.status_code}")
-                            break
-                
-                # Gerar PDF final
-                output_buffer = BytesIO()
-                writer.write(output_buffer)
-                output_buffer.seek(0)
-                
-                print(f"DEBUG: PDF final gerado com {len(writer.pages)} páginas")
-                flash(f"PDF gerado com sucesso: {len(writer.pages)} etiquetas sequenciais!", "success")
-                
-                return send_file(
-                    output_buffer,
-                    mimetype='application/pdf',
-                    as_attachment=True,
-                    download_name=f'etiquetas_seq_{len(writer.pages)}x_{largura_cm}x{altura_cm}cm_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-                )
-            else:
-                # Caso de etiqueta única que será replicada
-                # Modificar o código ZPL para gerar apenas 1 etiqueta
-                zpl_sem_fim = re.sub(r'\^XZ\s*$', '', zpl_code)
-                zpl_sem_pq = re.sub(r'\^PQ\d+[^\^]*', '', zpl_sem_fim)
-                zpl_modificado = f"{zpl_sem_pq}\n^PQ1,0,1,Y^XZ"
-                
-                response = requests.post(labelary_url, data=zpl_modificado.encode('utf-8'), headers=headers)
-            
-                if response.status_code == 200:
-                    print(f"DEBUG: Quantidade solicitada = {qtd}")
-                    print(f"DEBUG: PyPDF2 disponível = {PdfReader is not None and PdfWriter is not None}")
-                    
-                    # Se quantidade é 1, retornar direto
-                    if qtd == 1:
-                        pdf_buffer = BytesIO(response.content)
-                        pdf_buffer.seek(0)
-                        return send_file(
-                            pdf_buffer,
-                            mimetype='application/pdf',
-                            as_attachment=True,
-                            download_name=f'etiqueta_{largura_cm}x{altura_cm}cm_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-                        )
-                    
-                    # Se quantidade > 1, replicar a página usando PyPDF2
-                    if PdfReader and PdfWriter:
-                        try:
-                            print(f"DEBUG: Iniciando replicação de {qtd} etiquetas")
-                            # Ler o PDF original (1 etiqueta)
-                            pdf_original = BytesIO(response.content)
-                            reader = PdfReader(pdf_original)
-                            writer = PdfWriter()
-                            
-                            print(f"DEBUG: PDF original tem {len(reader.pages)} página(s)")
-                            
-                            # Adicionar a página qtd vezes
-                            page = reader.pages[0]
-                            for i in range(qtd):
-                                writer.add_page(page)
-                                if (i + 1) % 50 == 0:
-                                    print(f"DEBUG: Adicionadas {i + 1}/{qtd} páginas")
-                            
-                            print(f"DEBUG: Total de páginas no PDF final: {len(writer.pages)}")
-                            
-                            # Criar buffer de saída
-                            output_buffer = BytesIO()
-                            writer.write(output_buffer)
-                            output_buffer.seek(0)
-                            
-                            print(f"DEBUG: PDF gerado com sucesso! Tamanho: {len(output_buffer.getvalue())} bytes")
-                            
-                            flash(f"PDF gerado com sucesso: {qtd} etiquetas!", "success")
-                            
-                            return send_file(
-                                output_buffer,
-                                mimetype='application/pdf',
-                                as_attachment=True,
-                                download_name=f'etiquetas_{qtd}x_{largura_cm}x{altura_cm}cm_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-                            )
-                        except Exception as e:
-                            print(f"DEBUG: ERRO ao criar PDF múltiplo: {str(e)}")
-                            import traceback
-                            traceback.print_exc()
-                            flash(f"Erro ao criar PDF com múltiplas etiquetas: {str(e)}. Baixando apenas 1 etiqueta.", "warning")
-                            pdf_buffer = BytesIO(response.content)
-                            pdf_buffer.seek(0)
-                            return send_file(
-                                pdf_buffer,
-                                mimetype='application/pdf',
-                                as_attachment=True,
-                                download_name=f'etiqueta_1x_{largura_cm}x{altura_cm}cm_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-                            )
-                    else:
-                        print("DEBUG: PyPDF2 NÃO está disponível!")
-                        flash(f"PyPDF2 não está instalado. Baixando apenas 1 etiqueta. Instale com: pip install PyPDF2", "warning")
-                        pdf_buffer = BytesIO(response.content)
-                        pdf_buffer.seek(0)
-                        return send_file(
-                            pdf_buffer,
-                            mimetype='application/pdf',
-                            as_attachment=True,
-                            download_name=f'etiqueta_1x_{largura_cm}x{altura_cm}cm_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-                        )
-                else:
-                    flash(f"Erro ao converter ZPL para PDF. Status: {response.status_code}", "danger")
-                    return redirect(url_for("etiquetas_zpl"))
-                
-        except ValueError:
-            flash("Por favor, insira valores numéricos válidos para largura, altura e quantidade.", "danger")
-            return redirect(url_for("etiquetas_zpl"))
-        except Exception as e:
-            flash(f"Erro ao processar etiqueta: {str(e)}", "danger")
-            return redirect(url_for("etiquetas_zpl"))
-    
-    return render_template("etiquetas_zpl.html")
 
 
 if __name__ == "__main__":
