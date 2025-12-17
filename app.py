@@ -412,9 +412,11 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
     vendas_sem_sku = 0
     vendas_sem_produto = 0
     
-    # OTIMIZAÇÃO: Processar em lotes menores de 50 linhas
-    BATCH_SIZE = 50
+    # OTIMIZAÇÃO: Lotes grandes (100) para completar em < 5min (limite Render Free)
+    BATCH_SIZE = 100
     total_rows = len(df)
+    
+    print(f"📦 {total_rows} vendas - processando em alta velocidade...")
     
     for batch_start in range(0, total_rows, BATCH_SIZE):
         batch_end = min(batch_start + BATCH_SIZE, total_rows)
@@ -551,15 +553,14 @@ continue
 
                 vendas_importadas += 1
         
-        # Liberar memória após cada lote
-        import gc
-        gc.collect()
+        # Progresso a cada 1000 vendas
+        if (batch_end % 1000) == 0 or batch_end == total_rows:
+            print(f"✓ {batch_end}/{total_rows}")
         
-        # Progresso e limpeza de memória a cada 500 vendas
-        if (batch_end % 500) == 0 or batch_end == total_rows:
-            print(f"✓ {batch_end}/{total_rows} vendas ({(batch_end/total_rows*100):.0f}%)")
+        # Limpeza de memória só a cada 500 vendas
+        if (batch_end % 500) == 0:
             import gc
-            gc.collect(
+            gc.collect()
         "vendas_sem_sku": vendas_sem_sku,
         "vendas_sem_produto": vendas_sem_produto,
     }
