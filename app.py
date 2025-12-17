@@ -74,6 +74,14 @@ usuarios = Table(
 # Criar todas as tabelas no banco de dados
 metadata.create_all(engine)
 
+# Importar dados automaticamente se banco estiver vazio (apenas em produção)
+if raw_db_url:  # Só em produção (PostgreSQL)
+    try:
+        from auto_import import auto_import_data_if_empty
+        auto_import_data_if_empty(engine)
+    except Exception as e:
+        print(f"⚠️ Aviso: Não foi possível importar dados automaticamente: {e}")
+
 # Classe User para Flask-Login
 class User(UserMixin):
     def __init__(self, id, username, password_hash):
