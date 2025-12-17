@@ -1,13 +1,15 @@
 """
-Script para importar dados automaticamente na inicialização do app
+Script otimizado para importar dados com baixo uso de memória
 """
 import os
 import json
-from sqlalchemy import MetaData, inspect
+import gc
+from sqlalchemy import MetaData, inspect, text
 
 def auto_import_data_if_empty(engine):
     """
     Verifica se o banco está vazio e importa dados automaticamente
+    Otimizado para ambientes com pouca memória (Render Free = 512MB)
     """
     try:
         # Verificar se as tabelas existem e estão vazias
@@ -26,14 +28,17 @@ def auto_import_data_if_empty(engine):
                 return True
         
         # Se chegou aqui, precisa importar
-        print("📦 Banco vazio detectado. Iniciando importação automática...")
+        print("📦 Banco vazio detectado. Iniciando importação otimizada...")
         
         json_file = "data_export.json"
         if not os.path.exists(json_file):
             print(f"❌ Arquivo {json_file} não encontrado")
             return False
         
-        print(f"📂 Carregando dados de: {json_file}")
+        # Importar apenas tabelas pequenas primeiro (prioridade)
+        priority_tables = ["usuarios", "configuracoes", "produtos", "ajustes_estoque"]
+        
+        print(f"📂 Carregando dados prioritários...")
         with open(json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
@@ -41,40 +46,92 @@ def auto_import_data_if_empty(engine):
         metadata.reflect(bind=engine)
         
         imported_count = 0
-        with engine.begin() as conn:
-            for table_name, rows in data.items():
-                if not rows:
-                    continue
-                
-                if table_name not in metadata.tables:
-                    print(f"⚠️ Tabela {table_name} não existe")
-                    continue
-                
-                table = metadata.tables[table_name]
-                
-                print(f"  → Importando {table_name}: {len(rows)} registros...")
-                
-                try:
-                    # Inserir em lotes
-                    batch_size = 500
+        
+        # Importar tabelas prioritárias primeiro
+        for table_name in priority_tables:
+            if table_name not in data or not data[table_name]:
+                continue
+            
+            if table_name not in metadata.tables:
+                continue
+            
+            rows = data[table_name]
+            table = metadata.tables[table_name]
+            
+            print(f"  → {table_name}: {len(rows)} registros...")
+            
+            try:
+                with engine.begin() as conn:
+                    # Lotes pequenos para economizar memória
+                    batch_size = 100
                     for i in range(0, len(rows), batch_size):
                         batch = rows[i:i+batch_size]
                         conn.execute(table.insert(), batch)
+                        gc.collect()  # Liberar memória
+                
+                imported_count += len(rows)
+                print(f"    ✓ Importado")
+                
+            except Exception as e:
+                print(f"    ❌ Erro: {e}")
+        
+        # Liberar memória das tabelas prioritárias
+        for table_name in priority_tables:
+            if table_name in data:
+                del data[table_name]
+        gc.collect()
+        
+        # Importar tabelas grandes (vendas e transações) em lotes muito pequenos
+        large_tables = ["vendas", "finance_transactions"]
+        
+        for table_name in large_tables:
+            if table_name not in data or not data[table_name]:
+                continue
+            
+            if table_name not in metadata.tables:
+                continue
+            
+            rows = data[table_name]
+            total = len(rows)
+            table = metadata.tables[table_name]
+            
+            print(f"  → {table_name}: {total} registros (lotes de 50)...")
+            
+            try:
+                # Lotes MUITO pequenos para tabelas grandes
+                batch_size = 50
+                batches_done = 0
+                
+                for i in range(0, total, batch_size):
+                    batch = rows[i:i+batch_size]
                     
-                    imported_count += len(rows)
-                    print(f"    ✓ {len(rows)} registros importados")
+                    with engine.begin() as conn:
+                        conn.execute(table.insert(), batch)
                     
-                except Exception as e:
-                    print(f"    ❌ Erro ao importar {table_name}: {e}")
+                    batches_done += 1
+                    
+                    # Progresso e limpeza de memória a cada 10 lotes
+                    if batches_done % 10 == 0:
+                        progress = min(i + batch_size, total)
+                        print(f"    ... {progress}/{total}")
+                        gc.collect()
+                
+                imported_count += total
+                print(f"    ✓ {total} registros importados")
+                
+            except Exception as e:
+                print(f"    ❌ Erro: {e}")
+                # Continuar mesmo se falhar
+        
+        # Limpar dados da memória
+        data.clear()
+        gc.collect()
         
         print(f"\n✅ Importação concluída! Total: {imported_count} registros")
         return True
         
     except Exception as e:
-        print(f"❌ Erro na importação automática: {e}")
+        print(f"❌ Erro na importação: {e}")
         import traceback
         traceback.print_exc()
         return False
-
-# Importar text do sqlalchemy
-from sqlalchemy import text
