@@ -91,13 +91,13 @@
         </div>
 
         <div class="col-md-6">
-            <div class="card shadow-sm">
-                <div class="card-header">Receita Líquida Diária (Receita - Comissão ML)</div>
-                <div class="card-body">
-                    <canvas id="chartReceitaLiquida" style="height:260px;"></canvas>
-                </div>
-            </div>
-        </div>
+<!--             <div class="card shadow-sm"> -->
+<!--                 <div class="card-header">Receita Líquida Diária (Receita - Comissão ML)</div> -->
+<!--                 <div class="card-body"> -->
+<!--                     <canvas id="chartReceitaLiquida" style="height:260px;"></canvas> -->
+<!--                 </div> -->
+<!--             </div> -->
+<!--         </div> -->
 
         <div class="col-md-6">
             <div class="card shadow-sm">
@@ -243,7 +243,7 @@ const labels = {{ grafico_labels|tojson }};
 const dadosFaturamento = {{ grafico_faturamento|tojson }};
 const dadosQuantidade = {{ grafico_quantidade|tojson }};
 const dadosLucro = {{ grafico_lucro|tojson }};
-const dadosReceitaLiquida = {{ grafico_receita_liquida|tojson }};  // NOVO
+// const dadosReceitaLiquida = []; // TODO: implementar grafico_receita_liquida no backend
 const labelsCmp = {{ grafico_cmp_labels|tojson }};
 const dadosAtual = {{ grafico_cmp_atual|tojson }};
 const dadosAnterior = {{ grafico_cmp_anterior|tojson }};
@@ -329,7 +329,7 @@ new Chart(document.getElementById("chartLucro"), {
     options: baseConfig
 });
 
-// NOVO: Gráfico de Receita Líquida Diária
+/*
 new Chart(document.getElementById("chartReceitaLiquida"), {
     type: "bar",
     data: {
@@ -343,7 +343,7 @@ new Chart(document.getElementById("chartReceitaLiquida"), {
         }]
     },
     options: baseConfig
-});
+}); */
 
 new Chart(document.getElementById("chartComparativo"), {
     type: "line",
