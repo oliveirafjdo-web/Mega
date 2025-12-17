@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Conciliação ML × MP{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h3 mb-1">Conciliação: Mercado Livre × Mercado Pago</h1>
+      <p class="text-muted mb-0">
+        Comparação entre <b>Receita líquida ML</b> (bruta − comissão) e <b>Receita líquida MP</b> (valor líquido do settlement).
+      </p>
+    </div>
+  </div>
+
+  <form class="row g-3 mb-4" method="GET">
+    <div class="col-md-3">
+      <label class="form-label">Data início</label>
+      <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Data fim</label>
+      <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button class="btn btn-primary w-100" type="submit">
+        <i class="bi bi-funnel me-1"></i> Filtrar
+      </button>
+    </div>
+  </form>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Receita líquida (ML)</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(ml_liquida) }}</div>
+          <small class="text-muted">bruta − comissão</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Receita líquida (MP)</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(mp_liquida) }}</div>
+          <small class="text-muted">valor líquido do settlement</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card border-2">
+        <div class="card-body">
+          <div class="text-muted">Diferença (ML − MP)</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(diferenca_total) }}</div>
+          <small class="text-muted">diferença total no período</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="card-title mb-0">Comparação diária</h5>
+        <div class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('importar_ml_view') }}">
+            <i class="bi bi-cloud-arrow-up me-1"></i> Importar ML
+          </a>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('importar_mp_view') }}">
+            <i class="bi bi-cloud-arrow-up me-1"></i> Importar MP
+          </a>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Dia</th>
+              <th class="text-end">Líquido ML</th>
+              <th class="text-end">Líquido MP</th>
+              <th class="text-end">Diferença</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in linhas %}
+              <tr>
+                <td>{{ r.dia }}</td>
+                <td class="text-end">R$ {{ '%.2f'|format(r.ml) }}</td>
+                <td class="text-end">R$ {{ '%.2f'|format(r.mp) }}</td>
+                <td class="text-end">R$ {{ '%.2f'|format(r.diff) }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-muted">Sem dados para o período.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <small class="text-muted">
+        Observação: ML agrupa por <b>data da venda</b>; MP agrupa por <b>data de liberação do dinheiro</b>. Se preferir, posso alterar para comparar por aprovação.
+      </small>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

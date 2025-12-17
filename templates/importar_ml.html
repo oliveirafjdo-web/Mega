@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Importar vendas ML • MetriFy{% endblock %}
+{% block page_icon %}<i class="bi bi-cloud-arrow-up text-primary"></i>{% endblock %}
+{% block page_title %}Importar vendas do Mercado Livre{% endblock %}
+
+{% block content %}
+<div class="card-glass">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-file-earmark-spreadsheet"></i> Planilha "Vendas BR"
+    </div>
+  </div>
+
+  <form method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label class="form-label" for="arquivo">Arquivo XLSX exportado do Mercado Livre</label>
+      <input type="file" class="form-control" id="arquivo" name="arquivo" accept=".xls,.xlsx" required>
+      <div class="text-soft mt-1">
+        Use a aba <strong>Vendas BR</strong> no layout padrão do Mercado Livre.  
+        A coluna <strong>"Tarifa de venda e impostos (BRL)"</strong> será usada como comissão.
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-cloud-arrow-up"></i> Importar
+    </button>
+  </form>
+</div>
+{% endblock %}

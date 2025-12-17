@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Importar Mercado Pago{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h3 mb-1">Importar relatório do Mercado Pago</h1>
+      <p class="text-muted mb-0">Use o arquivo XLSX de settlement para alimentar o caixa (valor líquido).</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <form method="POST" enctype="multipart/form-data" class="row g-3">
+        <div class="col-md-8">
+          <label class="form-label">Arquivo (.xlsx)</label>
+          <input type="file" name="arquivo" class="form-control" accept=".xlsx,.xls" required>
+          <small class="text-muted">Dica: o sistema usa o <b>VALOR LÍQUIDO DA TRANSAÇÃO</b> e o <b>ID DA TRANSAÇÃO NO MERCADO PAGO</b> para evitar duplicidade.</small>
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <button class="btn btn-primary w-100" type="submit">
+            <i class="bi bi-cloud-arrow-up me-1"></i> Importar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Lotes de Importação -->
+  <div class="card mt-4">
+    <div class="card-body">
+      <h5 class="card-title mb-3">Lotes Importados</h5>
+      {% if lotes_mp %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Lote</th>
+              <th>Transações</th>
+              <th>Período</th>
+              <th class="text-end">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lote in lotes_mp %}
+              <tr>
+                <td>{{ lote.lote_importacao }}</td>
+                <td>{{ lote.qtd }}</td>
+                <td>{{ (lote.data_min or '')[:10] }} até {{ (lote.data_max or '')[:10] }}</td>
+                <td class="text-end">
+                  <form method="post" action="{{ url_for('excluir_lote_financeiro', lote=lote.lote_importacao) }}" class="d-inline" onsubmit="return confirm('Excluir lote {{ lote.lote_importacao }}? Isso removerá {{ lote.qtd }} transações.');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                      <i class="bi bi-trash"></i> Excluir
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted">Nenhum lote importado ainda.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

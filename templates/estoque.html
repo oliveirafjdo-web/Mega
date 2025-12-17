@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+    #tabelaEstoque td,
+    #tabelaEstoque th {
+        color: #000 !important;
+    }
+
+    .linha-sem-estoque {
+        background: #fee2e2 !important;
+    }
+
+    .linha-repor {
+        background: #fef9c3 !important;
+    }
+
+    .badge-ok {
+        background: #22c55e;
+        color: #052e16;
+    }
+
+    .badge-repor {
+        background: #facc15;
+        color: #422006;
+    }
+
+    .badge-sem {
+        background: #b91c1c;
+        color: #fef2f2;
+    }
+</style>
+
+<div class="container mx-auto px-4 py-6">
+
+    <h1 class="text-3xl font-bold mb-6 text-white">Estoque e Reposição</h1>
+
+    <!-- ===================== CARDS SUPERIORES ===================== -->
+    <div class="row mb-5">
+
+        <div class="col-md-3 mb-3">
+            <div class="card text-center p-3 shadow">
+                <p class="text-xs text-muted mb-1">Total de Unidades</p>
+                <h3 class="mb-0">{{ total_unidades_estoque|int }}</h3>
+            </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <div class="card text-center p-3 shadow">
+                <p class="text-xs text-muted mb-1">Custo Total do Estoque</p>
+                <h3 class="mb-0">
+                    R$ {{ '%.2f'|format(total_custo_estoque or 0) }}
+                </h3>
+            </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <div class="card text-center p-3 shadow">
+                <p class="text-xs text-muted mb-1">
+                    Receita Potencial <br><small>(Receita bruta - comissão ML)</small>
+                </p>
+                <h3 class="mb-0 text-primary">
+                    R$ {{ '%.2f'|format(receita_potencial_total or 0) }}
+                </h3>
+            </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <div class="card text-center p-3 shadow">
+                <p class="text-xs text-muted mb-1">
+                    Lucro Estimado <br>
+                    <small>(Após custo, comissão, imposto e despesas)</small>
+                </p>
+                <h3 class="mb-1 text-success">
+                    R$ {{ '%.2f'|format(lucro_estimado_total or 0) }}
+                </h3>
+                <span class="text-soft">
+                    {{ '%.2f'|format(percentual_lucro_total or 0) }}% sobre o custo do estoque
+                </span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ===================== BUSCA + FILTROS ===================== -->
+    <div class="flex flex-col md:flex-row gap-4 mb-4">
+
+        <input id="filtroBusca"
+               type="text"
+               placeholder="Filtrar por nome ou SKU..."
+               class="input input-bordered w-full md:w-80"
+               onkeyup="filtrarTabela()">
+
+        <div class="flex flex-wrap gap-2">
+            <button class="btn btn-sm" onclick="filtrarStatus('todos')">Todos</button>
+            <button class="btn btn-sm btn-success" onclick="filtrarStatus('ok')">OK</button>
+            <button class="btn btn-sm btn-warning" onclick="filtrarStatus('repor')">Repor</button>
+            <button class="btn btn-sm btn-error" onclick="filtrarStatus('sem')">Sem estoque</button>
+            <button class="btn btn-sm btn-info" onclick="filtrarSugestaoMes()">Sugestão mês</button>
+        </div>
+
+    </div>
+
+    <!-- ===================== BOTÃO AJUSTAR ESTOQUE ===================== -->
+    <div class="mb-4">
+        <a href="/estoque/ajuste" class="btn btn-warning btn-lg">Ajustar estoque</a>
+    </div>
+
+    <!-- ===================== TABELA ===================== -->
+    <div class="overflow-x-auto">
+        <table id="tabelaEstoque" class="min-w-full text-sm border border-slate-300 bg-white">
+
+            <thead style="background:#e5e7eb; font-weight:600;">
+                <tr>
+                    <th class="px-3 py-2 text-left sort" data-col="nome">Produto ⬍</th>
+                    <th class="px-3 py-2 text-left sort" data-col="sku">SKU ⬍</th>
+                    <th class="px-3 py-2 text-right sort" data-col="estoque">Estoque ⬍</th>
+                    <th class="px-3 py-2 text-right sort" data-col="sugestao_mes">Sugestão mês ⬍</th>
+                    <th class="px-3 py-2 text-right">Custo unit.</th>
+                    <th class="px-3 py-2 text-right">Custo total</th>
+                    <th class="px-3 py-2 text-right sort" data-col="media">Média diária ⬍</th>
+                    <th class="px-3 py-2 text-right sort" data-col="dias">Dias cob. ⬍</th>
+                    <th class="px-3 py-2 text-right sort" data-col="lucro">Lucro pot. ⬍</th>
+                    <th class="px-3 py-2 text-right sort" data-col="retorno">Retorno (%) ⬍</th>
+                    <th class="px-3 py-2 text-center">Situação</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+            {% for p in produtos %}
+                {% set media_diaria_val = p.media_diaria or 0 %}
+                {% set demanda_mensal = media_diaria_val * 30 %}
+                {% set estoque_atual_val = p.estoque_atual or 0 %}
+                {% set sugestao_mes_val = demanda_mensal - estoque_atual_val %}
+                {% if sugestao_mes_val < 0 %}
+                    {% set sugestao_mes_val = 0 %}
+                {% endif %}
+
+                {% set status =
+                    'sem' if p.estoque_atual|int == 0 else
+                    'repor' if p.precisa_repor else
+                    'ok'
+                %}
+
+                <tr class="
+                    {% if status == 'sem' %}linha-sem-estoque{% endif %}
+                    {% if status == 'repor' %}linha-repor{% endif %}
+                "
+                    data-status="{{ status }}"
+                    data-nome="{{ p.nome|lower }}"
+                    data-sku="{{ p.sku|lower }}"
+                    data-estoque="{{ estoque_atual_val }}"
+                    data-sugestao_mes="{{ '%.0f'|format(sugestao_mes_val) }}"
+                    data-media="{{ '%.0f'|format(media_diaria_val) }}"
+                    data-dias="{{ '%.0f'|format(p.dias_cobertura or 0) }}"
+                    data-lucro="{{ '%.2f'|format(p.lucro_potencial or 0) }}"
+                    data-retorno="{{ '%.2f'|format(p.retorno_percent or 0) }}"
+                >
+                    <td class="px-3 py-2">{{ p.nome }}</td>
+                    <td class="px-3 py-2">{{ p.sku }}</td>
+                    <td class="px-3 py-2 text-right">{{ estoque_atual_val|int }}</td>
+                    <td class="px-3 py-2 text-right">{{ '%.0f'|format(sugestao_mes_val) }}</td>
+                    <td class="px-3 py-2 text-right">R$ {{ '%.2f'|format(p.custo_unitario or 0) }}</td>
+                    <td class="px-3 py-2 text-right">R$ {{ '%.2f'|format(p.custo_estoque or 0) }}</td>
+                    <td class="px-3 py-2 text-right">{{ '%.0f'|format(media_diaria_val) }}</td>
+                    <td class="px-3 py-2 text-right">
+                        {% if p.dias_cobertura %}
+                            {{ '%.0f'|format(p.dias_cobertura) }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-right text-emerald-600 font-semibold">
+                        R$ {{ '%.2f'|format(p.lucro_potencial or 0) }}
+                    </td>
+                    <td class="px-3 py-2 text-right text-indigo-600 font-semibold">
+                        {{ '%.2f'|format(p.retorno_percent or 0) }}%
+                    </td>
+                    <td class="px-3 py-2 text-center">
+                        {% if status == 'sem' %}
+                            <span class="badge-sem px-2 py-1 rounded-full text-xs">Sem estoque</span>
+                        {% elif status == 'repor' %}
+                            <span class="badge-repor px-2 py-1 rounded-full text-xs">Repor</span>
+                        {% else %}
+                            <span class="badge-ok px-2 py-1 rounded-full text-xs">OK</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<!-- ===================== SCRIPTS ===================== -->
+<script>
+function filtrarTabela() {
+    const busca = document.getElementById("filtroBusca").value.toLowerCase();
+    const linhas = document.querySelectorAll("#tabelaEstoque tbody tr");
+
+    linhas.forEach(l => {
+        const nome = l.dataset.nome || "";
+        const sku = l.dataset.sku || "";
+        l.style.display = (nome.includes(busca) || sku.includes(busca)) ? "" : "none";
+    });
+}
+
+function filtrarStatus(status) {
+    const linhas = document.querySelectorAll("#tabelaEstoque tbody tr");
+    linhas.forEach(l => {
+        l.style.display = (status === "todos" || l.dataset.status === status) ? "" : "none";
+    });
+    document.getElementById("filtroBusca").value = "";
+}
+
+function filtrarSugestaoMes() {
+    const linhas = document.querySelectorAll("#tabelaEstoque tbody tr");
+    linhas.forEach(l => {
+        const s = parseFloat(l.dataset.sugestao_mes || "0");
+        l.style.display = s > 0 ? "" : "none";
+    });
+    document.getElementById("filtroBusca").value = "";
+}
+
+function ordenarPor(coluna) {
+    const tbody = document.querySelector("#tabelaEstoque tbody");
+    const linhas = Array.from(tbody.querySelectorAll("tr"));
+
+    linhas.sort((a, b) => {
+        const v1 = parseFloat(a.dataset[coluna] || "0");
+        const v2 = parseFloat(b.dataset[coluna] || "0");
+        return v2 - v1;
+    });
+
+    linhas.forEach(l => tbody.appendChild(l));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("#tabelaEstoque thead .sort").forEach(head => {
+        head.addEventListener("click", () => ordenarPor(head.dataset.col));
+    });
+
+    ordenarPor("estoque");
+});
+</script>
+
+{% endblock %}

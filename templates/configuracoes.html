@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Configurações • MetriFy{% endblock %}
+{% block page_icon %}<i class="bi bi-sliders2-vertical text-primary"></i>{% endblock %}
+{% block page_title %}Configurações de imposto e despesas{% endblock %}
+
+{% block content %}
+<div class="card-glass">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-gear"></i> Parâmetros financeiros
+    </div>
+  </div>
+
+  <form method="post" class="row g-3">
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="imposto_percent">Imposto sobre a receita (%)</label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-control"
+        id="imposto_percent"
+        name="imposto_percent"
+        value="{{ '%.2f'|format(cfg.imposto_percent) if cfg else '0.00' }}"
+        required
+      >
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label" for="despesas_percent">Outras despesas sobre a receita (%)</label>
+      <input
+        type="number"
+        step="0.01"
+        class="form-control"
+        id="despesas_percent"
+        name="despesas_percent"
+      value="{{ '%.2f'|format(cfg.despesas_percent) if cfg else '0.00' }}"
+        required
+      >
+    </div>
+    <div class="col-12 col-md-4 d-flex align-items-end">
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-save"></i> Salvar configurações
+      </button>
+    </div>
+    <div class="col-12">
+      <div class="text-soft">
+        Esses percentuais são usados no <strong>Dashboard</strong> e no
+        <strong>Relatório de Lucro</strong> para calcular os valores de imposto, despesas e lucro líquido.
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

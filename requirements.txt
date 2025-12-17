@@ -1,0 +1,11 @@
+flask
+sqlalchemy
+pandas
+openpyxl
+gunicorn
+werkzeug
+psycopg2-binary
+flask-login
+flask-bcrypt
+requests
+pypdf

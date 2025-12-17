@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Financeiro{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h3 mb-1">Financeiro (Caixa)</h1>
+      <p class="text-muted mb-0">Entradas automáticas do Mercado Pago + lançamentos manuais (devolução/retirada).</p>
+    </div>
+  </div>
+
+  <!-- Filtro -->
+  <form class="row g-3 mb-4" method="GET">
+    <div class="col-md-3">
+      <label class="form-label">Data início</label>
+      <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Data fim</label>
+      <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button class="btn btn-primary w-100" type="submit">
+        <i class="bi bi-funnel me-1"></i> Filtrar
+      </button>
+    </div>
+  </form>
+
+  <!-- Cards -->
+  <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-6 g-3 mb-4">
+    <div class="col">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Saldo anterior</div>
+          <form method="POST" class="d-flex align-items-center">
+            <input type="hidden" name="acao" value="set_saldo_anterior">
+            <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+            <div class="input-group">
+              <span class="input-group-text">R$</span>
+              <input type="number" step="0.01" name="saldo_anterior_val" class="form-control" value="{{ '%.2f'|format(saldo_anterior) }}">
+              <button class="btn btn-outline-primary" type="submit">Atualizar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Entradas (Mercado Pago)</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(entradas_mp) }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Devoluções</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(devolucoes) }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Retiradas</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(retiradas) }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div class="card-body">
+          <div class="text-muted">Tarifas ML</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(tarifas_ml) }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card border-2">
+        <div class="card-body">
+          <div class="text-muted">Saldo atual</div>
+          <div class="h4 mb-0">R$ {{ '%.2f'|format(saldo_atual) }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lançamentos -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title mb-3">Novo lançamento</h5>
+      <div class="row g-3">
+        <!-- Saldo inicial -->
+        <div class="col-lg-4">
+          <form method="POST" class="border rounded p-3 h-100">
+            <input type="hidden" name="acao" value="saldo_inicial">
+            <div class="fw-semibold mb-2"><i class="bi bi-flag me-1"></i> Saldo inicial</div>
+            <div class="mb-2">
+              <label class="form-label">Data</label>
+              <input type="date" name="data" class="form-control" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Valor</label>
+              <input type="number" step="0.01" name="valor" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Descrição (opcional)</label>
+              <input type="text" name="descricao" class="form-control">
+            </div>
+            <button class="btn btn-outline-primary w-100" type="submit">Salvar</button>
+          </form>
+        </div>
+
+        <!-- Devolução -->
+        <div class="col-lg-4">
+          <form method="POST" class="border rounded p-3 h-100">
+            <input type="hidden" name="acao" value="devolucao">
+            <div class="fw-semibold mb-2"><i class="bi bi-arrow-counterclockwise me-1"></i> Devolução</div>
+            <div class="mb-2">
+              <label class="form-label">Data</label>
+              <input type="date" name="data" class="form-control" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Valor</label>
+              <input type="number" step="0.01" name="valor" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Descrição (opcional)</label>
+              <input type="text" name="descricao" class="form-control">
+            </div>
+            <button class="btn btn-outline-danger w-100" type="submit">Salvar</button>
+          </form>
+        </div>
+
+        <!-- Retirada -->
+        <div class="col-lg-4">
+          <form method="POST" class="border rounded p-3 h-100">
+            <input type="hidden" name="acao" value="retirada">
+            <div class="fw-semibold mb-2"><i class="bi bi-wallet2 me-1"></i> Retirada</div>
+            <div class="mb-2">
+              <label class="form-label">Data</label>
+              <input type="date" name="data" class="form-control" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Valor</label>
+              <input type="number" step="0.01" name="valor" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Descrição (opcional)</label>
+              <input type="text" name="descricao" class="form-control">
+            </div>
+            <button class="btn btn-outline-dark w-100" type="submit">Salvar</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Extrato -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="card-title mb-0">Extrato (até 500 linhas)</h5>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('importar_mp_view') }}">
+          <i class="bi bi-cloud-arrow-up me-1"></i> Importar MP
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Origem</th>
+              <th class="text-end">Valor</th>
+              <th>ID MP</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in transacoes %}
+              <tr>
+                <td>{{ (t.data_lancamento or '')[:19] }}</td>
+                <td>{{ t.tipo }}</td>
+                <td>{{ t.origem }}</td>
+                <td class="text-end">R$ {{ '%.2f'|format(t.valor or 0) }}</td>
+                <td class="text-muted">{{ t.external_id_mp or '-' }}</td>
+                <td>{{ t.descricao or '-' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="text-muted">Sem lançamentos no período.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lotes de Importação MP -->
+  {% if lotes_mp %}
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title mb-3">Lotes de Importação (Mercado Pago)</h5>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Lote</th>
+              <th>Transações</th>
+              <th>Período</th>
+              <th class="text-end">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lote in lotes_mp %}
+              <tr>
+                <td>{{ lote.lote_importacao }}</td>
+                <td>{{ lote.qtd }}</td>
+                <td>{{ (lote.data_min or '')[:10] }} até {{ (lote.data_max or '')[:10] }}</td>
+                <td class="text-end">
+                  <form method="post" action="{{ url_for('excluir_lote_financeiro', lote=lote.lote_importacao) }}" class="d-inline" onsubmit="return confirm('Excluir lote {{ lote.lote_importacao }}? Isso removerá {{ lote.qtd }} transações.');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                      <i class="bi bi-trash"></i> Excluir (Financeiro)
+                    </button>
+                  </form>
+                  <form method="post" action="{{ url_for('excluir_lote_venda', lote=lote.lote_importacao) }}" class="d-inline ms-1" onsubmit="return confirm('Excluir lote {{ lote.lote_importacao }} das vendas? Isso removerá todas as vendas deste lote.');">
+                    <button type="submit" class="btn btn-sm btn-outline-warning">
+                      <i class="bi bi-trash"></i> Excluir (Vendas)
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

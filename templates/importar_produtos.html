@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Importar Produtos • MetriFy{% endblock %}
+{% block page_icon %}<i class="bi bi-cloud-arrow-up text-primary"></i>{% endblock %}
+{% block page_title %}Importar produtos via Excel{% endblock %}
+
+{% block content %}
+<div class="card-glass">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-file-earmark-spreadsheet"></i> Planilha de Produtos
+    </div>
+  </div>
+
+  <form method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label class="form-label" for="arquivo">Arquivo XLSX com produtos</label>
+      <input type="file" class="form-control" id="arquivo" name="arquivo" accept=".xls,.xlsx" required>
+      <div class="text-soft mt-1">
+        A planilha deve ter as colunas: <strong>SKU</strong> (obrigatório), <strong>Nome</strong> (opcional), <strong>Estoque</strong>, <strong>Custo</strong>.<br>
+        Se o SKU já existir, o produto será atualizado; caso contrário, será criado um novo.
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-cloud-arrow-up"></i> Importar
+    </button>
+  </form>
+</div>
+{% endblock %}

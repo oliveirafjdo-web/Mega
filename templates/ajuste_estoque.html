@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Ajuste de Estoque - Metrify{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+    <h2 class="h4 mb-3">Ajuste de Estoque</h2>
+
+    <p class="text-muted mb-4">
+        Utilize este formulário para registrar entradas e saídas de estoque.
+        <br>
+        Para <strong>entradas com custo informado</strong>, o sistema recalcula automaticamente o
+        <strong>custo médio ponderado</strong> do produto.
+    </p>
+
+    <form action="{{ url_for('ajuste_estoque') }}" method="POST" class="card shadow-sm border-0 p-4">
+
+        <!-- Produto -->
+        <div class="mb-3">
+            <label class="form-label">Produto</label>
+            <select class="form-select" name="produto_id" required>
+                {% for p in produtos %}
+                    <option value="{{ p.id }}">{{ p.nome }} ({{ p.sku }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Tipo -->
+        <div class="mb-3">
+            <label class="form-label">Tipo de ajuste</label>
+            <select class="form-select" name="tipo" id="tipo-ajuste" required>
+                <option value="entrada">Entrada</option>
+                <option value="saida">Saída</option>
+            </select>
+        </div>
+
+        <!-- Quantidade -->
+        <div class="mb-3">
+            <label class="form-label">Quantidade</label>
+            <input type="number" class="form-control" name="quantidade" required min="1">
+            <small class="text-muted">Quantidade de unidades afetadas.</small>
+        </div>
+
+        <!-- Custo unitário (somente para entrada) -->
+        <div class="mb-3" id="campo-custo">
+            <label class="form-label">Custo unitário (somente para entrada)</label>
+            <input type="number" step="0.01" class="form-control" name="custo_unitario">
+            <small class="text-muted">
+                Informe o custo do lote. O sistema atualizará o <strong>custo médio do produto</strong>.
+            </small>
+        </div>
+
+        <!-- Observação -->
+        <div class="mb-3">
+            <label class="form-label">Observação</label>
+            <textarea name="observacao" class="form-control" rows="2"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary px-4">Salvar ajuste</button>
+        <a href="{{ url_for('estoque_view') }}" class="btn btn-link">Voltar</a>
+    </form>
+</div>
+
+<script>
+    document.getElementById("tipo-ajuste").addEventListener("change", function () {
+        let tipo = this.value;
+        let campoCusto = document.getElementById("campo-custo");
+        if (tipo === "saida") {
+            campoCusto.style.display = "none";
+        } else {
+            campoCusto.style.display = "block";
+        }
+    });
+
+    // inicializa estado correto
+    document.getElementById("tipo-ajuste").dispatchEvent(new Event("change"));
+</script>
+
+{% endblock %}

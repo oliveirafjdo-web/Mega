@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block title %}Vendas - Metrify{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <!-- =========================== -->
+    <!-- (BOTÃO DE AJUSTE REMOVIDO) -->
+    <!-- =========================== -->
+    {# Botão de ajuste de estoque removido desta tela #}
+
+    <!-- =========================== -->
+    <!-- FILTROS DE DATA -->
+    <!-- =========================== -->
+    <form class="row g-3 mb-4" method="GET">
+        <div class="col-md-3">
+            <label class="form-label">Data início</label>
+            <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Data fim</label>
+            <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <button class="btn btn-primary w-100">Filtrar</button>
+        </div>
+    </form>
+
+    <!-- =========================== -->
+    <!-- TOTAIS NO TOPO -->
+    <!-- =========================== -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center p-3">
+                <h5>Total de Vendas</h5>
+                <h3>{{ totais.qtd }}</h3>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card text-center p-3">
+                <h5>Faturamento Total</h5>
+                <h3>R$ {{ "%.2f"|format(totais.receita or 0) }}</h3>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card text-center p-3">
+                <h5>Custo Total</h5>
+                <h3>R$ {{ "%.2f"|format(totais.custo or 0) }}</h3>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card text-center p-3">
+                <h5>Lucro Líquido</h5>
+                <h3>R$ {{ "%.2f"|format(totais.lucro_liquido or 0) }}</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================== -->
+    <!-- GRÁFICOS -->
+    <!-- =========================== -->
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Faturamento diário</div>
+                <div class="card-body">
+                    <canvas id="chartFaturamento" style="height:260px;"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Quantidade vendida por dia</div>
+                <div class="card-body">
+                    <canvas id="chartQuantidade" style="height:260px;"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Lucro diário</div>
+                <div class="card-body">
+                    <canvas id="chartLucro" style="height:260px;"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Comparativo: Mês atual x Mês anterior</div>
+                <div class="card-body">
+                    <canvas id="chartComparativo" style="height:260px;"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================== -->
+        <!-- NOVO: PIZZA POR ESTADO (UF) -->
+        <!-- =========================== -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Vendas por Estado (UF)</span>
+                    <small class="text-muted">Baseado no período filtrado</small>
+                </div>
+                <div class="card-body">
+                    {% if pizza_estados_labels and pizza_estados_valores %}
+                        <canvas id="chartPizzaEstados" style="height:260px;"></canvas>
+                    {% else %}
+                        <div class="text-muted">
+                            Nenhum dado de UF encontrado. Verifique se sua tabela <b>vendas</b> possui coluna
+                            <b>uf/estado</b> (ou ajuste o nome no backend).
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================== -->
+        <!-- NOVO: PIZZA POR PRODUTO (SKU) -->
+        <!-- =========================== -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Vendas por Produto (Top 10 SKU)</span>
+                    <small class="text-muted">Baseado no período filtrado</small>
+                </div>
+                <div class="card-body">
+                    {% if pizza_produtos_labels and pizza_produtos_valores %}
+                        <canvas id="chartPizzaProdutos" style="height:260px;"></canvas>
+                    {% else %}
+                        <div class="text-muted">
+                            Nenhum dado de produto encontrado no período selecionado.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- =========================== -->
+    <!-- LOTES IMPORTADOS -->
+    <!-- =========================== -->
+    <h3 class="mt-4 mb-3">Lotes importados</h3>
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Lote</th>
+                <th>Quantidade</th>
+                <th>Faturamento</th>
+                <th>Ação</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lote in lotes %}
+            <tr>
+                <td>{{ lote.lote_importacao }}</td>
+                <td>{{ lote.qtd_vendas }}</td>
+                <td>R$ {{ "%.2f"|format(lote.receita_lote) }}</td>
+                <td>
+                    <form method="post" action="{{ url_for('excluir_lote_venda', lote=lote.lote_importacao) }}" onsubmit="return confirm('Excluir todas as vendas desse lote?');">
+                        <button class="btn btn-danger btn-sm">Excluir lote</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- =========================== -->
+    <!-- LISTA DE VENDAS -->
+    <!-- =========================== -->
+    <h3 class="mt-5 mb-3">Lista de vendas</h3>
+    <table class="table table-bordered table-hover">
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Produto</th>
+                <th>Qtd</th>
+                <th>Receita</th>
+                <th>Custo</th>
+                <th>Lucro</th>
+                <th>Origem</th>
+                <th>Nº ML</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in vendas %}
+            <tr>
+                <td>{{ v.data_venda[:10] }}</td>
+                <td>{{ v.nome }}</td>
+                <td>{{ v.quantidade }}</td>
+                <td>R$ {{ "%.2f"|format(v.receita_total) }}</td>
+                <td>R$ {{ "%.2f"|format(v.custo_total) }}</td>
+                <td>R$ {{ "%.2f"|format(v.margem_contribuicao) }}</td>
+                <td>{{ v.origem }}</td>
+                <td>{{ v.numero_venda_ml }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- PAGINAÇÃO -->
+    <nav aria-label="Vendas pagination">
+      <ul class="pagination justify-content-center">
+        {% for p in range(1, total_pages+1) %}
+        <li class="page-item {% if p==current_page %}active{% endif %}">
+          <a class="page-link"
+            href="?data_inicio={{ data_inicio }}&data_fim={{ data_fim }}&page={{ p }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+
+</div>
+
+<!-- Chart.js + DataLabels -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
+<script>
+// registra o plugin para garantir que os valores apareçam
+if (window.ChartDataLabels) {
+    Chart.register(ChartDataLabels);
+}
+
+const labels = {{ grafico_labels|tojson }};
+const dadosFaturamento = {{ grafico_faturamento|tojson }};
+const dadosQuantidade = {{ grafico_quantidade|tojson }};
+const dadosLucro = {{ grafico_lucro|tojson }};
+const labelsCmp = {{ grafico_cmp_labels|tojson }};
+const dadosAtual = {{ grafico_cmp_atual|tojson }};
+const dadosAnterior = {{ grafico_cmp_anterior|tojson }};
+
+// NOVO: Pizza por estado
+const pizzaEstadosLabels = {{ pizza_estados_labels|default([])|tojson }};
+const pizzaEstadosValores = {{ pizza_estados_valores|default([])|tojson }};
+
+// NOVO: Pizza por produto (SKU)
+const pizzaProdutosLabels = {{ pizza_produtos_labels|default([])|tojson }};
+const pizzaProdutosValores = {{ pizza_produtos_valores|default([])|tojson }};
+
+const baseConfig = {
+    plugins: {
+        datalabels: {
+            display: true,
+            color: "#000",
+            anchor: "end",
+            align: "top",
+            font: { weight: "bold", size: 11 },
+            formatter: value => {
+                if (value === null || value === undefined || Number(value) === 0) {
+                    return "";
+                }
+                return Number(value).toLocaleString("pt-BR");
+            }
+        },
+        legend: { display: true }
+    },
+    responsive: true,
+    scales: {
+        x: { ticks: { maxRotation: 45, minRotation: 45 } },
+        y: { beginAtZero: true }
+    }
+};
+
+new Chart(document.getElementById("chartFaturamento"), {
+    type: "line",
+    data: {
+        labels,
+        datasets: [{
+            label: "Faturamento (R$)",
+            data: dadosFaturamento,
+            borderColor: "#3498db",
+            backgroundColor: "rgba(52,152,219,0.3)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4
+        }]
+    },
+    options: baseConfig
+});
+
+new Chart(document.getElementById("chartQuantidade"), {
+    type: "bar",
+    data: {
+        labels,
+        datasets: [{
+            label: "Quantidade",
+            data: dadosQuantidade,
+            backgroundColor: "#1E90FF",
+            borderColor: "#1E90FF",
+            borderWidth: 1
+        }]
+    },
+    options: baseConfig
+});
+
+new Chart(document.getElementById("chartLucro"), {
+    type: "line",
+    data: {
+        labels,
+        datasets: [{
+            label: "Lucro (R$)",
+            data: dadosLucro,
+            borderColor: "#2ecc71",
+            backgroundColor: "rgba(46,204,113,0.3)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4
+        }]
+    },
+    options: baseConfig
+});
+
+new Chart(document.getElementById("chartComparativo"), {
+    type: "line",
+    data: {
+        labels: labelsCmp,
+        datasets: [
+            {
+                label: "Mês atual",
+                data: dadosAtual,
+                borderColor: "#3498db",
+                backgroundColor: "rgba(52,152,219,0.2)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+                borderWidth: 2
+            },
+            {
+                label: "Mês anterior",
+                data: dadosAnterior,
+                borderColor: "#ff0000",
+                backgroundColor: "rgba(255,0,0,0.20)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+                borderWidth: 3
+            }
+        ]
+    },
+    options: baseConfig
+});
+
+// ===========================
+// NOVO: DOUGHNUT por Estado (UF)
+// ===========================
+const canvasPizza = document.getElementById("chartPizzaEstados");
+if (canvasPizza && pizzaEstadosLabels.length > 0) {
+    new Chart(canvasPizza, {
+        type: "doughnut",
+        data: {
+            labels: pizzaEstadosLabels,
+            datasets: [{
+                data: pizzaEstadosValores
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom" },
+                datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold", size: 12 },
+                    formatter: (value, ctx) => {
+                        const total = (ctx.chart.data.datasets[0].data || []).reduce((a, b) => a + Number(b || 0), 0);
+                        if (!total || !value) return "";
+                        const pct = (Number(value) / total) * 100;
+                        // mostra % (e evita poluir se for muito pequeno)
+                        if (pct < 3) return "";
+                        const label = ctx.chart.data.labels[ctx.dataIndex] || "";
+                        return label + "\n" + pct.toFixed(1).replace(".", ",") + "%";
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ===========================
+// NOVO: DOUGHNUT por Produto (SKU)
+// ===========================
+const canvasPizzaProdutos = document.getElementById("chartPizzaProdutos");
+if (canvasPizzaProdutos && pizzaProdutosLabels.length > 0) {
+    new Chart(canvasPizzaProdutos, {
+        type: "doughnut",
+        data: {
+            labels: pizzaProdutosLabels,
+            datasets: [{
+                data: pizzaProdutosValores
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom" },
+                datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold", size: 12 },
+                    formatter: (value, ctx) => {
+                        const total = (ctx.chart.data.datasets[0].data || []).reduce((a, b) => a + Number(b || 0), 0);
+                        if (!total || !value) return "";
+                        const pct = (Number(value) / total) * 100;
+                        if (pct < 3) return "";
+                        const label = ctx.chart.data.labels[ctx.dataIndex] || "";
+                        return label + "\n" + pct.toFixed(1).replace(".", ",") + "%";
+                    }
+                }
+            }
+        }
+    });
+}
+</script>
+
+{% endblock %}
