@@ -388,37 +388,36 @@ def normalize_df_uf(df):
 def importar_vendas_ml(caminho_arquivo, engine: Engine):
     lote_id = datetime.now().isoformat(timespec="seconds")
 
-    # OTIMIZAÇÃO EXTREMA: Processar arquivo em chunks de 500 linhas para não sobrecarregar memória
-    # Render Free tem apenas 512MB de RAM
+    # OTIMIZAÇÃO: Ler arquivo completo e processar em chunks
     CHUNK_SIZE = 1500
     
-    print(f"⚡ Iniciando importação em chunks de {CHUNK_SIZE} vendas...")
+    print(f"⚡ Iniciando importação em lotes de {CHUNK_SIZE} vendas...")
     
-    # Ler o arquivo em pedaços pequenos para economizar memória
+    # Ler arquivo Excel completo (read_excel não suporta chunksize)
+    df_all = pd.read_excel(
+        caminho_arquivo,
+        sheet_name="Vendas BR",
+        header=5
+    )
+    
+    if "N.º de venda" not in df_all.columns:
+        raise ValueError(f"Planilha não está no formato esperado")
+
+    df_all = df_all[df_all["N.º de venda"].notna()]
+    
+    # normaliza coluna UF (silencioso)
+    uf_col, not_rec = normalize_df_uf(df_all)
+    
+    total_vendas = len(df_all)
     vendas_importadas = 0
     vendas_sem_sku = 0
     vendas_sem_produto = 0
     chunk_num = 0
     
-    # Processar arquivo Excel em chunks
-    for df_chunk in pd.read_excel(
-        caminho_arquivo,
-        sheet_name="Vendas BR",
-        header=5,
-        chunksize=CHUNK_SIZE
-    ):
+    # Processar em chunks
+    for i in range(0, total_vendas, CHUNK_SIZE):
         chunk_num += 1
-        
-        if "N.º de venda" not in df_chunk.columns:
-            raise ValueError(f"Planilha não está no formato esperado")
-
-        df_chunk = df_chunk[df_chunk["N.º de venda"].notna()]
-        
-        if len(df_chunk) == 0:
-            continue
-        
-        # normaliza coluna UF (silencioso)
-        uf_col, not_rec = normalize_df_uf(df_chunk)
+        df_chunk = df_all.iloc[i:i+CHUNK_SIZE].copy()
         
         # Processar este chunk
         result = _processar_chunk_vendas_ml(df_chunk, engine, lote_id)
@@ -426,12 +425,17 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
         vendas_sem_sku += result['sem_sku']
         vendas_sem_produto += result['sem_produto']
         
-        print(f"✓ Chunk {chunk_num}: +{result['importadas']} vendas (total: {vendas_importadas})")
+        print(f"✓ Lote {chunk_num}: +{result['importadas']} vendas (total: {vendas_importadas}/{total_vendas})")
         
         # Limpar memória
         del df_chunk
         import gc
         gc.collect()
+    
+    # Limpar dataframe completo
+    del df_all
+    import gc
+    gc.collect()
     
     return {
         "lote_id": lote_id,
