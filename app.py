@@ -468,25 +468,31 @@ def _processar_chunk_vendas_ml(df, engine: Engine, lote_id: str):
 
                 produto_row = None
 
+                # Tentar buscar por SKU primeiro
                 if sku:
                     produto_row = conn.execute(
                         select(produtos.c.id, produtos.c.custo_unitario)
                         .where(produtos.c.sku == sku)
                     ).mappings().first()
-                else:
-                    # tenta pelo nome do produto = título do anúncio
-                    if titulo:
-                        produto_row = conn.execute(
-                            select(produtos.c.id, produtos.c.custo_unitario)
-                            .where(produtos.c.nome == titulo)
-                        ).mappings().first()
+                
+                # Se não encontrou por SKU, buscar pelo título
+                if not produto_row and titulo:
+                    produto_row = conn.execute(
+                        select(produtos.c.id, produtos.c.custo_unitario)
+                        .where(produtos.c.nome == titulo)
+                    ).mappings().first()
 
-                if not sku and not produto_row:
+                # Se não tem SKU E não tem título, marcar como sem SKU
+                if not sku and not titulo:
                     vendas_sem_sku += 1
                     continue
 
+                # Se não encontrou produto nem por SKU nem por título
                 if not produto_row:
-                    vendas_sem_produto += 1
+                    if not sku:
+                        vendas_sem_sku += 1
+                    else:
+                        vendas_sem_produto += 1
                     continue
 
                 produto_id = produto_row["id"]
