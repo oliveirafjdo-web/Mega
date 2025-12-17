@@ -444,12 +444,10 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
                     vendas_sem_sku += 1
                     print(f"⚠️ Venda sem SKU/produto: {titulo[:50] if titulo else 'sem título'}")
                     continue
+continue
 
                 if not produto_row:
                     vendas_sem_produto += 1
-                    print(f"⚠️ Produto não cadastrado - SKU: {sku}")
-                    continue
-
                 produto_id = produto_row["id"]
                 custo_unitario = float(produto_row["custo_unitario"] or 0.0)
 
@@ -557,13 +555,11 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
         import gc
         gc.collect()
         
-        # Progresso a cada 10 lotes (200 vendas)
-        if (batch_end % 200) == 0 or batch_end == total_rows:
-            print(f"✓ Processadas {batch_end}/{total_rows} vendas ({(batch_end/total_rows*100):.1f}%)")
-
-    return {
-        "lote_id": lote_id,
-        "vendas_importadas": vendas_importadas,
+        # Progresso e limpeza de memória a cada 500 vendas
+        if (batch_end % 500) == 0 or batch_end == total_rows:
+            print(f"✓ {batch_end}/{total_rows} vendas ({(batch_end/total_rows*100):.0f}%)")
+            import gc
+            gc.collect(
         "vendas_sem_sku": vendas_sem_sku,
         "vendas_sem_produto": vendas_sem_produto,
     }
