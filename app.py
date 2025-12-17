@@ -115,39 +115,6 @@ def logout_view():
     logout_user()
     flash("Logout realizado!", "success")
     return redirect(url_for("login_view"))
-import os
-from datetime import datetime, date, timedelta
-from io import BytesIO
-
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
-from werkzeug.utils import secure_filename
-
-from sqlalchemy import (
-    create_engine, MetaData, Table, Column, Integer, String, Float,
-    ForeignKey, func, select, insert, update, delete, inspect, text
-)
-from sqlalchemy.engine import Engine
-import pandas as pd
-
-# --------------------------------------------------------------------
-# Configuração de banco: Postgres em produção, SQLite em desenvolvimento
-# --------------------------------------------------------------------
-# Detecta Postgres (Render) ou cai para SQLite local
-raw_db_url = os.environ.get("DATABASE_URL")
-
-if raw_db_url:
-    # Render costuma entregar "postgres://", mas o SQLAlchemy quer "postgresql+psycopg2://"
-    if raw_db_url.startswith("postgres://"):
-        raw_db_url = raw_db_url.replace("postgres://", "postgresql+psycopg2://", 1)
-    DATABASE_URL = raw_db_url
-else:
-    DATABASE_URL = "sqlite:///metrifiy.db"
-UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
-
-app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.secret_key = os.environ.get("SECRET_KEY", "metrifypremium-secret")
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 engine: Engine = create_engine(DATABASE_URL, future=True)
