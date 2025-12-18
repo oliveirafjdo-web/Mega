@@ -83,35 +83,72 @@ usuarios = Table(
 # Criar todas as tabelas no banco de dados
 metadata.create_all(engine)
 
-# Migração: adicionar colunas ML (PostgreSQL)
-if raw_db_url:
+# Migração: adicionar colunas ML (PostgreSQL e SQLite)
+def migrate_ml_columns():
+    """Adiciona colunas do Mercado Livre nas tabelas configuracoes e vendas"""
     try:
         with engine.begin() as conn:
-            alteracoes = [
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_client_id VARCHAR(255)",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_client_secret VARCHAR(255)",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_access_token VARCHAR(500)",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_refresh_token VARCHAR(500)",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_token_expira VARCHAR(50)",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_user_id VARCHAR(100)",
-                "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_order_id VARCHAR(50)",
-                "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_status VARCHAR(50)",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_sync_auto VARCHAR(10) DEFAULT 'false'",
-                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_ultimo_sync VARCHAR(50)",
+            insp = inspect(engine)
+            
+            # Migração para configuracoes
+            cfg_cols = [c["name"] for c in insp.get_columns("configuracoes")]
+            ml_config_columns = [
+                ("ml_client_id", "VARCHAR(255)" if raw_db_url else "TEXT"),
+                ("ml_client_secret", "VARCHAR(255)" if raw_db_url else "TEXT"),
+                ("ml_access_token", "VARCHAR(500)" if raw_db_url else "TEXT"),
+                ("ml_refresh_token", "VARCHAR(500)" if raw_db_url else "TEXT"),
+                ("ml_token_expira", "VARCHAR(50)" if raw_db_url else "TEXT"),
+                ("ml_user_id", "VARCHAR(100)" if raw_db_url else "TEXT"),
+                ("ml_sync_auto", "VARCHAR(10)" if raw_db_url else "TEXT DEFAULT 'false'"),
+                ("ml_ultimo_sync", "VARCHAR(50)" if raw_db_url else "TEXT"),
             ]
-            for sql in alteracoes:
-                try:
-                    conn.execute(text(sql))
-                except Exception:
-                    pass
+            
+            for col_name, col_type in ml_config_columns:
+                if col_name not in cfg_cols:
+                    try:
+                        if raw_db_url:
+                            sql = f"ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        else:
+                            sql = f"ALTER TABLE configuracoes ADD COLUMN {col_name} {col_type}"
+                        conn.execute(text(sql))
+                        print(f"✅ Coluna {col_name} adicionada")
+                    except Exception as e:
+                        print(f"⚠️ Erro ao adicionar {col_name}: {e}")
+            
+            # Migração para vendas
+            vendas_cols = [c["name"] for c in insp.get_columns("vendas")]
+            ml_vendas_columns = [
+                ("ml_order_id", "VARCHAR(50)" if raw_db_url else "TEXT"),
+                ("ml_status", "VARCHAR(50)" if raw_db_url else "TEXT"),
+            ]
+            
+            for col_name, col_type in ml_vendas_columns:
+                if col_name not in vendas_cols:
+                    try:
+                        if raw_db_url:
+                            sql = f"ALTER TABLE vendas ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        else:
+                            sql = f"ALTER TABLE vendas ADD COLUMN {col_name} {col_type}"
+                        conn.execute(text(sql))
+                        print(f"✅ Coluna {col_name} adicionada")
+                    except Exception as e:
+                        print(f"⚠️ Erro ao adicionar {col_name}: {e}")
+            
             # Criar índice único para ml_order_id (ignora se já existe)
             try:
-                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id) WHERE ml_order_id IS NOT NULL"))
-            except Exception:
-                pass
+                if raw_db_url:
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id) WHERE ml_order_id IS NOT NULL"))
+                else:
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id)"))
+                print("✅ Índice ml_order_id criado")
+            except Exception as e:
+                print(f"⚠️ Índice ml_order_id: {e}")
+                
         print("✅ Migração ML concluída")
     except Exception as e:
-        print(f"⚠️ Migração: {e}")
+        print(f"⚠️ Migração ML falhou: {e}")
+
+migrate_ml_columns()
 
 # Helper para retry em operações de banco (SSL intermitente)
 def db_retry(func, max_attempts=3):
@@ -568,11 +605,29 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
     vendas_importadas = 0
     vendas_sem_sku = 0
     vendas_sem_produto = 0
+    
+    # Listas para rastrear vendas não importadas
+    vendas_sem_sku_lista = []
+    vendas_sem_produto_lista = []
+
+    # Criar mapeamento de título -> SKU da própria planilha
+    titulo_para_sku = {}
+    for _, row in df.iterrows():
+        sku_temp = str(row.get("SKU") or "").strip()
+        titulo_temp = str(row.get("Título do anúncio") or "").strip()
+        if sku_temp and titulo_temp and titulo_temp not in titulo_para_sku:
+            titulo_para_sku[titulo_temp] = sku_temp
 
     with engine.begin() as conn:
         for _, row in df.iterrows():
             sku = str(row.get("SKU") or "").strip()
             titulo = str(row.get("Título do anúncio") or "").strip()
+            numero_venda = str(row.get("N.º de venda") or "")
+
+            # Se não tiver SKU mas tiver título, busca SKU de outra linha com mesmo título
+            if not sku and titulo and titulo in titulo_para_sku:
+                sku = titulo_para_sku[titulo]
+                print(f"[AUTO-PREENCHIMENTO] SKU '{sku}' encontrado para título '{titulo[:50]}...'")
 
             produto_row = None
 
@@ -591,10 +646,20 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
 
             if not sku and not produto_row:
                 vendas_sem_sku += 1
+                vendas_sem_sku_lista.append({
+                    "numero_venda": numero_venda,
+                    "titulo": titulo if titulo else "(sem título)",
+                    "sku": "(vazio)"
+                })
                 continue
 
             if not produto_row:
                 vendas_sem_produto += 1
+                vendas_sem_produto_lista.append({
+                    "numero_venda": numero_venda,
+                    "titulo": titulo if titulo else "(sem título)",
+                    "sku": sku if sku else "(vazio)"
+                })
                 continue
 
             produto_id = produto_row["id"]
@@ -614,6 +679,50 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
                 receita_total = float(receita_bruta) if receita_bruta == receita_bruta else 0.0
             except Exception:
                 receita_total = 0.0
+            
+            # Verificar se a venda está cancelada por outras colunas (Status, etc)
+            status_venda = str(row.get("Status") or "").strip().lower()
+            status_envio = str(row.get("Status do envio") or "").strip().lower()
+            
+            # Considerar cancelada se:
+            # 1. Receita <= 0
+            # 2. Status contém "cancelad" ou "cancelled"
+            # 3. Status de envio é "not_specified" com receita zero ou negativa
+            venda_cancelada = (
+                receita_total <= 0 or 
+                "cancelad" in status_venda or 
+                "cancelled" in status_venda or
+                (status_envio == "not_specified" and receita_total <= 0)
+            )
+            
+            if venda_cancelada and receita_total != 0:
+                print(f"[CANCELADA POR STATUS] Venda {row.get('N.º de venda')} - Status: {status_venda} - Receita: R$ {receita_total}")
+                receita_total = 0.0  # Forçar receita zero para vendas canceladas
+
+            # Captura Preço unitário para vendas canceladas
+            preco_unitario = row.get("Preço")
+            try:
+                preco_unit = float(preco_unitario) if preco_unitario == preco_unitario else 0.0
+            except Exception:
+                preco_unit = 0.0
+            
+            # Determinar o preço médio de venda
+            if receita_total > 0:
+                # Venda normal, calcula pela receita
+                preco_medio_venda = receita_total / unidades if unidades > 0 else 0.0
+            elif preco_unit > 0 and unidades > 0:
+                # Venda cancelada: usa coluna "Preço" (valor unitário original)
+                preco_medio_venda = preco_unit
+                print(f"[VENDA CANCELADA] Usando Preço unitário: R$ {preco_unit} x {unidades} = R$ {preco_unit * unidades}")
+            else:
+                # Busca preço de venda sugerido do produto
+                preco_sugerido = conn.execute(
+                    select(produtos.c.preco_venda_sugerido)
+                    .where(produtos.c.id == produto_id)
+                ).scalar()
+                preco_medio_venda = float(preco_sugerido or 0.0)
+                if receita_total == 0:
+                    print(f"[VENDA CANCELADA] Usando preço sugerido: R$ {preco_medio_venda}")
 
             # Comissão Mercado Livre a partir da coluna 'Tarifa de venda e impostos (BRL)'
             tarifa = row.get("Tarifa de venda e impostos (BRL)")
@@ -626,8 +735,6 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
 
             # Receita Líquida = Receita por produtos (BRL) - Tarifa de venda e impostos (BRL)
             receita_liquida = receita_total - comissao_ml
-
-            preco_medio_venda = receita_total / unidades if unidades > 0 else 0.0
             custo_total = custo_unitario * unidades
             margem_contribuicao = receita_liquida - custo_total
             numero_venda_ml = str(row.get("N.º de venda"))
@@ -693,19 +800,61 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
             except Exception as e:
                 print(f"Erro ao inserir transação financeira para venda {numero_venda_ml}: {e}")
 
-            conn.execute(
-                update(produtos)
-                .where(produtos.c.id == produto_id)
-                .values(estoque_atual=produtos.c.estoque_atual - unidades)
-            )
+            # Só deduz estoque se a venda NÃO for cancelada (receita_total > 0)
+            if receita_total > 0:
+                conn.execute(
+                    update(produtos)
+                    .where(produtos.c.id == produto_id)
+                    .values(estoque_atual=produtos.c.estoque_atual - unidades)
+                )
+            else:
+                print(f"[VENDA CANCELADA] Venda {numero_venda_ml} com receita R$ 0 - ESTOQUE NÃO DEDUZIDO")
 
             vendas_importadas += 1
+
+    # Salvar relatório de vendas não importadas em Excel
+    relatorio_filename = None
+    if vendas_sem_sku_lista or vendas_sem_produto_lista:
+        dados_relatorio = []
+        
+        # Adicionar vendas sem SKU
+        for v in vendas_sem_sku_lista:
+            dados_relatorio.append({
+                "Tipo": "Sem SKU/Título",
+                "N° da Venda": v['numero_venda'],
+                "Título do Produto": v['titulo'],
+                "SKU": v['sku'],
+                "Ação Necessária": "Cadastrar produto ou adicionar SKU na planilha"
+            })
+        
+        # Adicionar vendas sem produto cadastrado
+        for v in vendas_sem_produto_lista:
+            dados_relatorio.append({
+                "Tipo": "Produto não cadastrado",
+                "N° da Venda": v['numero_venda'],
+                "Título do Produto": v['titulo'],
+                "SKU": v['sku'],
+                "Ação Necessária": "Cadastrar produto com este SKU no sistema"
+            })
+        
+        # Salvar em Excel
+        try:
+            relatorio_filename = f"vendas_nao_importadas_{lote_id.replace(':', '-')}.xlsx"
+            relatorio_path = os.path.join(app.config["UPLOAD_FOLDER"], relatorio_filename)
+            df_relatorio = pd.DataFrame(dados_relatorio)
+            df_relatorio.to_excel(relatorio_path, index=False, engine='openpyxl')
+            print(f"\n📋 Relatório Excel de vendas não importadas salvo em: {relatorio_path}")
+        except Exception as e:
+            print(f"Erro ao salvar relatório: {e}")
+            relatorio_filename = None
 
     return {
         "lote_id": lote_id,
         "vendas_importadas": vendas_importadas,
         "vendas_sem_sku": vendas_sem_sku,
         "vendas_sem_produto": vendas_sem_produto,
+        "relatorio_gerado": bool(vendas_sem_sku_lista or vendas_sem_produto_lista),
+        "relatorio_filename": relatorio_filename,
     }
 
 
@@ -826,19 +975,38 @@ def dashboard():
             select(func.coalesce(func.sum(produtos.c.estoque_atual), 0))
         ).scalar_one()
 
-        # --- totais filtrados por período ---
+        # --- totais filtrados por período (EXCLUINDO VENDAS CANCELADAS) ---
+        # Vendas canceladas = receita_total <= 0
+        filtro_nao_cancelada = [vendas.c.receita_total > 0] + filtro_data
+        
         receita_total = conn.execute(
             select(func.coalesce(func.sum(vendas.c.receita_total), 0))
-            .where(*filtro_data)
+            .where(*filtro_nao_cancelada)
         ).scalar_one()
 
         custo_total = conn.execute(
             select(func.coalesce(func.sum(vendas.c.custo_total), 0))
-            .where(*filtro_data)
+            .where(*filtro_nao_cancelada)
         ).scalar_one()
 
         margem_total = conn.execute(
             select(func.coalesce(func.sum(vendas.c.margem_contribuicao), 0))
+            .where(*filtro_nao_cancelada)
+        ).scalar_one()
+        
+        # --- VENDAS CANCELADAS (receita_total <= 0) ---
+        vendas_canceladas_qtd = conn.execute(
+            select(func.count())
+            .select_from(vendas)
+            .where(vendas.c.receita_total <= 0)
+            .where(*filtro_data)
+        ).scalar_one()
+        
+        # Valor bruto das vendas canceladas (preço unitário * quantidade)
+        vendas_canceladas_valor = conn.execute(
+            select(func.coalesce(func.sum(vendas.c.preco_venda_unitario * vendas.c.quantidade), 0))
+            .select_from(vendas)
+            .where(vendas.c.receita_total <= 0)
             .where(*filtro_data)
         ).scalar_one()
 
@@ -870,14 +1038,14 @@ def dashboard():
 
         ticket_medio = conn.execute(
             select(func.coalesce(func.avg(vendas.c.preco_venda_unitario), 0))
-            .where(*filtro_data)
+            .where(*filtro_nao_cancelada)
         ).scalar_one()
 
-        # produto mais vendido no período
+        # produto mais vendido no período (sem canceladas)
         produto_mais_vendido = conn.execute(
             select(produtos.c.nome, func.sum(vendas.c.quantidade).label("qtd"))
             .select_from(vendas.join(produtos))
-            .where(*filtro_data)
+            .where(*filtro_nao_cancelada)
             .group_by(produtos.c.id)
             .order_by(func.sum(vendas.c.quantidade).desc())
             .limit(1)
@@ -886,7 +1054,7 @@ def dashboard():
         produto_maior_lucro = conn.execute(
             select(produtos.c.nome, func.sum(vendas.c.margem_contribuicao).label("lucro"))
             .select_from(vendas.join(produtos))
-            .where(*filtro_data)
+            .where(*filtro_nao_cancelada)
             .group_by(produtos.c.id)
             .order_by(func.sum(vendas.c.margem_contribuicao).desc())
             .limit(1)
@@ -895,7 +1063,7 @@ def dashboard():
         produto_pior_margem = conn.execute(
             select(produtos.c.nome, func.sum(vendas.c.margem_contribuicao).label("margem"))
             .select_from(vendas.join(produtos))
-            .where(*filtro_data)
+            .where(*filtro_nao_cancelada)
             .group_by(produtos.c.id)
             .order_by(func.sum(vendas.c.margem_contribuicao).asc())
             .limit(1)
@@ -917,6 +1085,8 @@ def dashboard():
         produto_mais_vendido=produto_mais_vendido,
         produto_maior_lucro=produto_maior_lucro,
         produto_pior_margem=produto_pior_margem,
+        vendas_canceladas_qtd=vendas_canceladas_qtd,
+        vendas_canceladas_valor=vendas_canceladas_valor,
         cfg=cfg,
         data_inicio=data_inicio,
         data_fim=data_fim,
@@ -1251,44 +1421,39 @@ def lista_vendas():
     grafico_receita_liquida = [receita_liquida_dia.get(d, 0) for d in dias]
 
     # =========================
-    # COMPARATIVO MÊS ATUAL x MÊS ANTERIOR
-    # (IGNORA O FILTRO DA TELA E BUSCA DIRETO NO BANCO)
+    # COMPARATIVO: PERÍODO FILTRADO vs PERÍODO ANTERIOR
+    # (RESPEITA O FILTRO DA TELA)
     # =========================
-    inicio_mes_atual = hoje.replace(day=1)
+    try:
+        data_fim_dt = datetime.fromisoformat(data_fim).date() if data_fim else hoje
+        data_inicio_dt = datetime.fromisoformat(data_inicio).date() if data_inicio else trinta_dias_atras
+    except Exception:
+        data_fim_dt = hoje
+        data_inicio_dt = trinta_dias_atras
+    
+    # Período atual (filtrado na tela)
+    periodo_atual_dias = (data_fim_dt - data_inicio_dt).days + 1
+    
+    # Período anterior (mesmo tamanho)
+    periodo_anterior_fim = data_inicio_dt - timedelta(days=1)
+    periodo_anterior_inicio = periodo_anterior_fim - timedelta(days=periodo_atual_dias - 1)
 
-    if inicio_mes_atual.month == 1:
-        ano_ant = inicio_mes_atual.year - 1
-        mes_ant = 12
-    else:
-        ano_ant = inicio_mes_atual.year
-        mes_ant = inicio_mes_atual.month - 1
-    inicio_mes_anterior = date(ano_ant, mes_ant, 1)
-
-    if inicio_mes_atual.month == 12:
-        primeiro_prox_mes_atual = date(inicio_mes_atual.year + 1, 1, 1)
-    else:
-        primeiro_prox_mes_atual = date(inicio_mes_atual.year, inicio_mes_atual.month + 1, 1)
-    fim_mes_atual = min(hoje, primeiro_prox_mes_atual - timedelta(days=1))
-
-    if mes_ant == 12:
-        primeiro_mes_pos_ant = date(ano_ant + 1, 1, 1)
-    else:
-        primeiro_mes_pos_ant = date(ano_ant, mes_ant + 1, 1)
-    fim_mes_anterior = primeiro_mes_pos_ant - timedelta(days=1)
-
+    # Busca vendas dos dois períodos (exclui canceladas)
     with engine.connect() as conn_cmp:
         rows_cmp = conn_cmp.execute(
             select(
                 vendas.c.data_venda,
                 vendas.c.receita_total
             ).where(
-                vendas.c.data_venda >= inicio_mes_anterior.isoformat(),
-                vendas.c.data_venda <= fim_mes_atual.isoformat() + "T23:59:59"
+                vendas.c.data_venda >= periodo_anterior_inicio.isoformat(),
+                vendas.c.data_venda <= data_fim_dt.isoformat() + "T23:59:59",
+                vendas.c.receita_total > 0
             )
         ).mappings().all()
 
-    faturamento_mes_atual = {}
-    faturamento_mes_anterior = {}
+    # Dicionários para acumular por dia (1..30)
+    faturamento_periodo_atual = {}
+    faturamento_periodo_anterior = {}
 
     for v in rows_cmp:
         data_raw = v["data_venda"]
@@ -1297,32 +1462,24 @@ def lista_vendas():
         try:
             dt = datetime.fromisoformat(str(data_raw)).date()
         except Exception:
-            # se você já tem parse_data_venda no projeto, mantém
-            dt_parsed = parse_data_venda(data_raw)
-            if not dt_parsed:
-                continue
-            dt = dt_parsed.date()
+            continue
 
         receita = float(v["receita_total"] or 0)
 
-        if inicio_mes_atual <= dt <= fim_mes_atual:
-            faturamento_mes_atual[dt] = faturamento_mes_atual.get(dt, 0) + receita
-        elif inicio_mes_anterior <= dt <= fim_mes_anterior:
-            faturamento_mes_anterior[dt] = faturamento_mes_anterior.get(dt, 0) + receita
+        # Período atual
+        if data_inicio_dt <= dt <= data_fim_dt:
+            dia_offset = (dt - data_inicio_dt).days + 1
+            faturamento_periodo_atual[dia_offset] = faturamento_periodo_atual.get(dia_offset, 0) + receita
 
-    dias_mes_atual = []
-    d = inicio_mes_atual
-    while d <= fim_mes_atual:
-        dias_mes_atual.append(d)
-        d += timedelta(days=1)
+        # Período anterior
+        elif periodo_anterior_inicio <= dt <= periodo_anterior_fim:
+            dia_offset = (dt - periodo_anterior_inicio).days + 1
+            faturamento_periodo_anterior[dia_offset] = faturamento_periodo_anterior.get(dia_offset, 0) + receita
 
-    grafico_cmp_labels = [d.isoformat() for d in dias_mes_atual]
-    grafico_cmp_atual = [faturamento_mes_atual.get(d, 0) for d in dias_mes_atual]
-
-    grafico_cmp_anterior = []
-    for i, _d in enumerate(dias_mes_atual):
-        dia_ant = inicio_mes_anterior + timedelta(days=i)
-        grafico_cmp_anterior.append(faturamento_mes_anterior.get(dia_ant, 0))
+    # Labels e dados alinhados (1..período_atual_dias)
+    grafico_cmp_labels = [f"{d:02d}" for d in range(1, periodo_atual_dias + 1)]
+    grafico_cmp_atual = [faturamento_periodo_atual.get(d, 0) for d in range(1, periodo_atual_dias + 1)]
+    grafico_cmp_anterior = [faturamento_periodo_anterior.get(d, 0) for d in range(1, periodo_atual_dias + 1)]
 
     # =========================
     # TOTAIS (RESPEITAM O FILTRO DA TELA)
@@ -1373,18 +1530,41 @@ def importar_ml_view():
 
         try:
             resumo = importar_vendas_ml(caminho, engine)
-            flash(
+            msg = (
                 f"Importação concluída. Lote {resumo['lote_id']} - "
                 f"{resumo['vendas_importadas']} vendas importadas, "
                 f"{resumo['vendas_sem_sku']} sem SKU/Título, "
-                f"{resumo['vendas_sem_produto']} sem produto cadastrado.",
-                "success",
+                f"{resumo['vendas_sem_produto']} sem produto cadastrado."
             )
+            if resumo.get('relatorio_gerado') and resumo.get('relatorio_filename'):
+                msg += f' 📥 <a href="/download_relatorio/{resumo["relatorio_filename"]}" class="alert-link">Baixar relatório Excel</a>'
+            flash(msg, "success")
         except Exception as e:
             flash(f"Erro na importação: {e}", "danger")
         return redirect(url_for("importar_ml_view"))
 
     return render_template("importar_ml.html")
+
+
+@app.route("/download_relatorio/<filename>")
+@login_required
+def download_relatorio(filename):
+    """Download do relatório de vendas não importadas"""
+    try:
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        if os.path.exists(filepath) and filename.startswith("vendas_nao_importadas_"):
+            return send_file(
+                filepath,
+                as_attachment=True,
+                download_name=filename,
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            flash("Arquivo não encontrado.", "danger")
+            return redirect(url_for("importar_ml_view"))
+    except Exception as e:
+        flash(f"Erro ao baixar relatório: {e}", "danger")
+        return redirect(url_for("importar_ml_view"))
 
 
 @app.route("/exportar_consolidado")
@@ -1783,7 +1963,7 @@ def relatorio_lucro():
         imposto_percent = float(cfg.get("imposto_percent") or 0)
         despesas_percent = float(cfg.get("despesas_percent") or 0)
 
-        # monta query com filtro de datas
+        # monta query com filtro de datas (EXCLUINDO VENDAS CANCELADAS)
         query = (
             select(
                 produtos.c.nome.label("produto"),
@@ -1793,6 +1973,7 @@ def relatorio_lucro():
                 func.sum(vendas.c.margem_contribuicao).label("margem_atual"),
             )
             .select_from(vendas.join(produtos))
+            .where(vendas.c.receita_total > 0)  # Excluir vendas canceladas
         )
 
         if data_inicio:
@@ -1889,6 +2070,7 @@ def relatorio_lucro_exportar():
                 func.sum(vendas.c.margem_contribuicao).label("margem_atual"),
             )
             .select_from(vendas.join(produtos))
+            .where(vendas.c.receita_total > 0)  # Excluir vendas canceladas
         )
 
         if data_inicio:

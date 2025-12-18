@@ -1,8 +1,9 @@
 from flask import render_template, request, redirect, url_for
 from datetime import datetime, date
+import calendar
 from sqlalchemy import select, func
 from app import app, engine
-from app import vendas, produtos
+from app import vendas, produtos, configuracoes
 
 
 @app.route("/vendas")
@@ -85,6 +86,11 @@ def lista_vendas():
             continue
 
         receita = float(v["receita_total"] or 0)
+        
+        # PULAR vendas canceladas (receita <= 0) nos gráficos e totais
+        if receita <= 0:
+            continue
+            
         custo = float(v["custo_total"] or 0)
         margem = float(v["margem_contribuicao"] or 0)
         qtd = float(v["quantidade"] or 0)
@@ -123,42 +129,80 @@ def lista_vendas():
             month=inicio_mes_atual.month - 1
         )
 
-    faturamento_mes_atual = {}
-    faturamento_mes_anterior = {}
+    # Recarrega dados sem filtro para comparar mês atual x anterior (exclui canceladas)
+    with engine.connect() as conn_cmp:
+        vendas_cmp_rows = conn_cmp.execute(
+            select(vendas.c.data_venda, vendas.c.receita_total)
+            .where(vendas.c.data_venda >= inicio_mes_anterior.isoformat())
+            .where(vendas.c.data_venda <= hoje.isoformat() + "T23:59:59")
+        ).mappings().all()
 
-    for v in vendas_rows:
+    # Limites de dias por mês
+    dias_mes_atual = hoje.day  # até hoje
+    dias_mes_anterior = calendar.monthrange(inicio_mes_anterior.year, inicio_mes_anterior.month)[1]
+    max_dias = max(dias_mes_atual, dias_mes_anterior)
+
+    # Inicializa listas com zeros para manter alinhamento
+    faturamento_mes_atual = {d: 0 for d in range(1, max_dias + 1)}
+    faturamento_mes_anterior = {d: 0 for d in range(1, max_dias + 1)}
+
+    for v in vendas_cmp_rows:
         if not v["data_venda"]:
             continue
 
         dt = datetime.fromisoformat(v["data_venda"]).date()
         receita = float(v["receita_total"] or 0)
+        
+        # PULAR vendas canceladas
+        if receita <= 0:
+            continue
 
-        if dt >= inicio_mes_atual:
-            faturamento_mes_atual[dt] = faturamento_mes_atual.get(dt, 0) + receita
+        dia = dt.day
 
-        if inicio_mes_anterior <= dt < inicio_mes_atual:
-            faturamento_mes_anterior[dt] = faturamento_mes_anterior.get(dt, 0) + receita
+        # Mês atual
+        if dt.month == inicio_mes_atual.month and dt.year == inicio_mes_atual.year and dia <= dias_mes_atual:
+            faturamento_mes_atual[dia] += receita
 
-    datas_atual = sorted(faturamento_mes_atual.keys())
+        # Mês anterior
+        if dt.month == inicio_mes_anterior.month and dt.year == inicio_mes_anterior.year and dia <= dias_mes_anterior:
+            faturamento_mes_anterior[dia] += receita
 
-    grafico_cmp_labels = [d.isoformat() for d in datas_atual]
-    grafico_cmp_atual = [faturamento_mes_atual[d] for d in datas_atual]
+    # Labels dia a dia (01, 02, ...)
+    grafico_cmp_labels = [f"{d:02d}" for d in range(1, max_dias + 1)]
 
-    # alinhar dias do mês anterior pelos dias do mês atual
-    grafico_cmp_anterior = [
-        faturamento_mes_anterior.get(
-            inicio_mes_anterior.replace(day=d.day), 0
-        )
-        for d in datas_atual
-    ]
+    grafico_cmp_atual = [faturamento_mes_atual.get(d, 0) if d <= dias_mes_atual else 0 for d in range(1, max_dias + 1)]
+    grafico_cmp_anterior = [faturamento_mes_anterior.get(d, 0) if d <= dias_mes_anterior else 0 for d in range(1, max_dias + 1)]
 
     # ======================================================
-    # 5. TOTAIS GERAIS (para os cards de topo)
+    # 5. TOTAIS GERAIS (para os cards de topo) - EXCLUINDO CANCELADAS
     # ======================================================
+    vendas_validas = [v for v in vendas_rows if v["receita_total"] > 0]
+    
+    total_receita = sum(v["receita_total"] for v in vendas_validas)
+    total_custo = sum(v["custo_total"] for v in vendas_validas)
+    total_margem = sum(v["margem_contribuicao"] for v in vendas_validas)
+    
+    # Busca configurações para calcular lucro líquido
+    with engine.connect() as conn2:
+        cfg = conn2.execute(
+            select(configuracoes).where(configuracoes.c.id == 1)
+        ).mappings().first()
+    
+    imposto_percent = float(cfg["imposto_percent"]) if cfg else 0.0
+    despesas_percent = float(cfg["despesas_percent"]) if cfg else 0.0
+    
+    # Comissão ML estimada
+    comissao_total = max(0.0, (total_receita - total_custo) - total_margem)
+    imposto_total = total_receita * (imposto_percent / 100.0)
+    despesas_total = total_receita * (despesas_percent / 100.0)
+    
+    lucro_liquido = total_receita - total_custo - comissao_total - imposto_total - despesas_total
+    
     totais = {
-        "qtd": sum(v["quantidade"] for v in vendas_rows),
-        "receita": sum(v["receita_total"] for v in vendas_rows),
-        "custo": sum(v["custo_total"] for v in vendas_rows),
+        "qtd": sum(v["quantidade"] for v in vendas_validas),
+        "receita": total_receita,
+        "custo": total_custo,
+        "lucro_liquido": lucro_liquido,
     }
 
     # ======================================================

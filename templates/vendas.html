@@ -199,9 +199,14 @@
         </thead>
         <tbody>
             {% for v in vendas %}
-            <tr>
+            <tr {% if v.receita_total <= 0 %}class="table-danger" style="opacity: 0.7;"{% endif %}>
                 <td>{{ v.data_venda[:10] }}</td>
-                <td>{{ v.nome }}</td>
+                <td>
+                    {{ v.nome }}
+                    {% if v.receita_total <= 0 %}
+                        <span class="badge bg-danger ms-2">CANCELADA</span>
+                    {% endif %}
+                </td>
                 <td>{{ v.quantidade }}</td>
                 <td>R$ {{ "%.2f"|format(v.receita_total) }}</td>
                 <td>R$ {{ "%.2f"|format(v.custo_total) }}</td>

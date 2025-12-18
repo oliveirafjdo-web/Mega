@@ -538,7 +538,7 @@
           {% if messages %}
             {% for category, message in messages %}
               <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }}">
-                {{ message }}
+                {{ message | safe }}
               </div>
             {% endfor %}
           {% endif %}
