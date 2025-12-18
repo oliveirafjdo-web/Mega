@@ -118,41 +118,19 @@ if raw_db_url:
 def db_retry(func, max_attempts=3):
     """Executa função com retry em caso de erro SSL/conexão"""
     import time
-    from sqlalchemy.exc import OperationalError, DBAPIError
+    from sqlalchemy.exc import OperationalError
     
     for attempt in range(max_attempts):
         try:
             return func()
-        except (OperationalError, DBAPIError) as e:
-            error_str = str(e).lower()
-            if 'ssl' in error_str or 'connection' in error_str or 'eof' in error_str:
+        except OperationalError as e:
+            if 'SSL' in str(e) or 'connection' in str(e).lower():
                 if attempt < max_attempts - 1:
-                    print(f"⚠️ Erro conexão DB (tentativa {attempt + 1}/{max_attempts}), retry em 1s...")
-                    # Tentar forçar limpeza do pool
-                    try:
-                        engine.dispose()
-                    except:
-                        pass
+                    print(f"⚠️ Erro SSL (tentativa {attempt + 1}/{max_attempts}), retry em 1s...")
                     time.sleep(1)
                     continue
             raise
     return None
-
-# Context manager para conexões com retry
-from contextlib import contextmanager
-
-@contextmanager
-def db_connection_retry():
-    """Context manager que fornece conexão com retry automático"""
-    def _get_conn():
-        return engine.connect()
-    
-    conn = db_retry(_get_conn)
-    try:
-        yield conn
-    finally:
-        if conn:
-            conn.close()
 
 # Classe User para Flask-Login
 class User(UserMixin):
@@ -993,8 +971,7 @@ def lista_vendas():
     pizza_estados_labels = []
     pizza_estados_valores = []
 
-    try:
-        with engine.connect() as conn:
+    with engine.connect() as conn:
         # =======================
         # CONSULTA VENDAS (RESPEITA FILTRO DA TELA)
         # =======================
@@ -1188,25 +1165,14 @@ def lista_vendas():
         dia_ant = inicio_mes_anterior + timedelta(days=i)
         grafico_cmp_anterior.append(faturamento_mes_anterior.get(dia_ant, 0))
 
-        # =========================
-        # TOTAIS (RESPEITAM O FILTRO DA TELA)
-        # =========================
-        totais = {
-            "qtd": sum(float(q.get("quantidade") or 0) for q in vendas_all),
-            "receita": sum(float(q.get("receita_total") or 0) for q in vendas_all),
-            "custo": sum(float(q.get("custo_total") or 0) for q in vendas_all),
-        }
-    
-    except Exception as e:
-        # Em caso de erro SSL, tentar novamente após limpar pool
-        if 'SSL' in str(e) or 'connection' in str(e).lower():
-            try:
-                engine.dispose()
-                flash("Reconectando ao banco... Tente novamente.", "warning")
-            except:
-                pass
-        flash(f"Erro ao carregar vendas: {str(e)}", "danger")
-        return redirect(url_for("dashboard"))
+    # =========================
+    # TOTAIS (RESPEITAM O FILTRO DA TELA)
+    # =========================
+    totais = {
+        "qtd": sum(float(q.get("quantidade") or 0) for q in vendas_all),
+        "receita": sum(float(q.get("receita_total") or 0) for q in vendas_all),
+        "custo": sum(float(q.get("custo_total") or 0) for q in vendas_all),
+    }
 
     return render_template(
         "vendas.html",
@@ -2584,8 +2550,6 @@ def ml_sincronizar():
         
         vendas_importadas = 0
         vendas_sem_produto = 0
-        vendas_duplicadas = 0
-        total_pedidos = 0
         offset = 0
         MAX_VENDAS = 500  # Limite máximo para não estourar memória
         
@@ -2605,7 +2569,6 @@ def ml_sincronizar():
             
             # Processar cada venda com commit imediato
             for order in orders:
-                total_pedidos += 1
                 if vendas_importadas >= MAX_VENDAS:
                     break
                     
@@ -2661,7 +2624,6 @@ def ml_sincronizar():
                         
                         if venda_existente:
                             # Pular venda duplicada
-                            vendas_duplicadas += 1
                             continue
                         
                         # Inserir venda
@@ -2704,15 +2666,7 @@ def ml_sincronizar():
             # Feedback de progresso
             print(f"API ML: {vendas_importadas} vendas importadas...")
         
-        # Montar mensagem detalhada
-        msg = f"✅ Sincronizado! {total_pedidos} pedidos processados: "
-        msg += f"{vendas_importadas} vendas importadas"
-        if vendas_duplicadas > 0:
-            msg += f", {vendas_duplicadas} duplicadas (já existiam)"
-        if vendas_sem_produto > 0:
-            msg += f", {vendas_sem_produto} sem produto cadastrado"
-        
-        flash(msg, "success")
+        flash(f"✅ Sincronizado! {vendas_importadas} vendas importadas, {vendas_sem_produto} sem produto", "success")
         return redirect(url_for("lista_vendas"))
         
     except Exception as e:
@@ -2749,8 +2703,6 @@ def ml_sincronizar_hoje():
         
         vendas_importadas = 0
         vendas_sem_produto = 0
-        vendas_duplicadas = 0
-        total_pedidos = 0
         offset = 0
         
         while True:
@@ -2769,7 +2721,6 @@ def ml_sincronizar_hoje():
             
             # Processar cada venda
             for order in orders:
-                total_pedidos += 1
                 with engine.begin() as conn:
                     for item in order.get('order_items', []):
                         sku = item['item'].get('seller_custom_field')
@@ -2815,7 +2766,6 @@ def ml_sincronizar_hoje():
                         ).first()
                         
                         if venda_existente:
-                            vendas_duplicadas += 1
                             continue
                         
                         # Inserir venda
@@ -2850,15 +2800,7 @@ def ml_sincronizar_hoje():
                 break
             offset += 50
         
-        # Montar mensagem detalhada
-        msg = f"✅ Hoje: {total_pedidos} pedidos processados: "
-        msg += f"{vendas_importadas} vendas importadas"
-        if vendas_duplicadas > 0:
-            msg += f", {vendas_duplicadas} duplicadas (já existiam)"
-        if vendas_sem_produto > 0:
-            msg += f", {vendas_sem_produto} sem produto cadastrado"
-        
-        flash(msg, "success")
+        flash(f"✅ Hoje: {vendas_importadas} vendas importadas, {vendas_sem_produto} sem produto", "success")
         return redirect(url_for("lista_vendas"))
         
     except Exception as e:
@@ -2870,20 +2812,16 @@ def sincronizar_automaticamente():
     """Função executada pelo scheduler a cada 5 minutos"""
     with app.app_context():
         try:
-            # Usar retry para evitar erros SSL
-            def _check_config():
-                with engine.connect() as conn:
-                    return conn.execute(select(configuracoes)).mappings().first()
-            
-            config_row = db_retry(_check_config)
-            if not config_row:
-                return
+            with engine.connect() as conn:
+                config_row = conn.execute(
+                    select(configuracoes)
+                ).mappings().first()
                 
-            if config_row.get('ml_sync_auto') != 'true':
-                return
-            
-            if not config_row.get('access_token'):
-                return
+                if not config_row or config_row.get('ml_sync_auto') != 'true':
+                    return
+                
+                if not config_row.get('access_token'):
+                    return
             
             # Sincronizar hoje
             access_token = refresh_ml_token()
@@ -2891,16 +2829,12 @@ def sincronizar_automaticamente():
                 print("⚠️ Sync auto: token inválido")
                 return
             
-            # Buscar user_id com retry
-            def _get_user_id():
-                with engine.connect() as conn:
-                    row = conn.execute(select(configuracoes)).mappings().first()
-                    return row['ml_user_id'] if row else None
-            
-            user_id = db_retry(_get_user_id)
-            if not user_id:
-                print("⚠️ Sync auto: user_id não encontrado")
-                return
+            with engine.connect() as conn:
+                config_row = conn.execute(
+                    select(configuracoes)
+                ).mappings().first()
+                
+                user_id = config_row['ml_user_id']
             
             hoje = datetime.now().strftime('%Y-%m-%d')
             url = f"https://api.mercadolibre.com/orders/search"
