@@ -2215,5 +2215,39 @@ def etiquetas_zpl():
     return render_template("etiquetas_zpl.html")
 
 
+# ============================================================
+# ROTA: Limpar Banco de Dados (apenas admin)
+# ============================================================
+@app.route("/limpar_dados", methods=["GET", "POST"])
+@login_required
+def limpar_dados():
+    """Limpa produtos, vendas e transações do banco (mantém usuários)"""
+    if request.method == "POST":
+        confirmacao = request.form.get("confirmacao", "").strip()
+        
+        if confirmacao != "LIMPAR":
+            flash("Digite 'LIMPAR' para confirmar a operação.", "warning")
+            return redirect(url_for("limpar_dados"))
+        
+        try:
+            with engine.begin() as conn:
+                # Deletar na ordem correta (foreign keys)
+                r1 = conn.execute(text("DELETE FROM finance_transactions"))
+                r2 = conn.execute(text("DELETE FROM vendas"))
+                r3 = conn.execute(text("DELETE FROM produtos"))
+                
+                total = r1.rowcount + r2.rowcount + r3.rowcount
+                
+                flash(f"✅ Banco limpo! {total} registros deletados (transações: {r1.rowcount}, vendas: {r2.rowcount}, produtos: {r3.rowcount})", "success")
+                return redirect(url_for("dashboard"))
+                
+        except Exception as e:
+            flash(f"Erro ao limpar banco: {str(e)}", "danger")
+            return redirect(url_for("limpar_dados"))
+    
+    # GET - mostrar página de confirmação
+    return render_template("limpar_dados.html")
+
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
