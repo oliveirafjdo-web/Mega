@@ -2551,7 +2551,7 @@ def ml_sincronizar():
         vendas_importadas = 0
         vendas_sem_produto = 0
         offset = 0
-        MAX_VENDAS = 500  # Limite máximo para não estourar memória
+        MAX_VENDAS = 100  # Limite reduzido para sincronização mais rápida no Render Free
         
         while vendas_importadas < MAX_VENDAS:
             params['offset'] = offset
