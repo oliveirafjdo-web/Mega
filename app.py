@@ -478,23 +478,34 @@ def normalize_uf(value):
     # já é sigla?
     if len(s) == 2 and s.upper() in STATE_TO_SIGLA.values():
         return s.upper()
+    
     key = s.lower()
+    
     # tentativa direta
     if key in STATE_TO_SIGLA:
         return STATE_TO_SIGLA[key]
+    
     # remover acentos simples
     replacements = {'á':'a','à':'a','ã':'a','â':'a','é':'e','ê':'e','í':'i','ó':'o','ô':'o','õ':'o','ú':'u','ç':'c','Á':'A','Ã':'A','Â':'A'}
     key2 = ''.join(replacements.get(ch, ch) for ch in key)
     if key2 in STATE_TO_SIGLA:
         return STATE_TO_SIGLA[key2]
+    
     # tentar última palavra
     parts = key2.split()
     for i in range(len(parts)):
         candidate = ' '.join(parts[i:])
         if candidate in STATE_TO_SIGLA:
             return STATE_TO_SIGLA[candidate]
-    # não reconhecido
-    return s.upper()
+    
+    # tentar primeira palavra (em caso de nomes invertidos)
+    for i in range(len(parts)):
+        candidate = ' '.join(parts[:i+1])
+        if candidate in STATE_TO_SIGLA:
+            return STATE_TO_SIGLA[candidate]
+    
+    # não reconhecido - retorna None (e não a string original)
+    return None
 
 
 def normalize_df_uf(df):
@@ -635,14 +646,7 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
                 sigla = normalize_uf(estado_raw)
                 if sigla and isinstance(sigla, str) and len(sigla) == 2:
                     estado = sigla
-                else:
-                    # fallback: tentar extrair apenas letras e pegar primeiras 2
-                    import re
-                    letters = re.sub(r'[^A-Za-z]', '', str(estado_raw))
-                    if len(letters) >= 2:
-                        estado = letters[:2].upper()
-                    else:
-                        estado = None
+                # Se não conseguiu, não há fallback - deixa None
 
             conn.execute(
                 insert(vendas).values(
