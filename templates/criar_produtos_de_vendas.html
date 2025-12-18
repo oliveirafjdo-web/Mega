@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Criar Produtos das Vendas{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>🏭 Criar Produtos das Vendas</h2>
+    <p class="text-muted">Cria produtos automaticamente para as vendas que ainda não têm produto associado.</p>
+
+    {% if lotes_sem_produto %}
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Encontrados {{ lotes_sem_produto|length }} lotes com vendas sem produto!</strong>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <strong>📦 Lotes Pendentes</strong>
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        {% for lote in lotes_sem_produto %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <strong>{{ lote.lote_importacao }}</strong><br>
+                                    <small class="text-muted">{{ lote.total }} vendas</small>
+                                </div>
+                                <span class="badge bg-danger">{{ lote.total }}</span>
+                            </div>
+                            <hr class="my-2">
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <strong>📋 Resumo</strong>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            <strong>Total de vendas sem produto:</strong>
+                            <span class="badge bg-danger">{{ vendas_sem_produto|length }}</span>
+                        </p>
+                        <p>
+                            <strong>Lotes afetados:</strong>
+                            <span class="badge bg-warning">{{ lotes_sem_produto|length }}</span>
+                        </p>
+                        <hr>
+                        <form method="POST" action="/processar_vendas_sem_produto">
+                            <button type="submit" class="btn btn-success btn-lg w-100" 
+                                    onclick="return confirm('Criar produtos para TODAS as {{ vendas_sem_produto|length }} vendas?')">
+                                <i class="bi bi-check-circle"></i>
+                                Criar Produtos Agora
+                            </button>
+                        </form>
+                        <small class="text-muted mt-2 d-block">
+                            Isso criará produtos automaticamente e vinculará as vendas.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <h5>📍 Vendas Sem Produto</h5>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Lote</th>
+                        <th>Origem</th>
+                        <th>Número Venda</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for venda in vendas_sem_produto %}
+                        <tr>
+                            <td><small>#{{ venda.id }}</small></td>
+                            <td><small>{{ venda.lote_importacao[:20] }}</small></td>
+                            <td><small>{{ venda.origem or '-' }}</small></td>
+                            <td><small>{{ venda.numero_venda_ml or '-' }}</small></td>
+                            <td><span class="badge bg-danger">SEM PRODUTO</span></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="alert alert-success">
+            ✅ Todas as vendas têm produtos associados!
+        </div>
+    {% endif %}
+
+    <hr>
+
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <h5>📖 Como funciona:</h5>
+            <ul>
+                <li>Varre o banco de dados procurando vendas sem produto</li>
+                <li>Cria um produto automático para cada venda única</li>
+                <li>Vincula a venda ao produto criado</li>
+                <li>Marca o produto como <code>criado_automaticamente = true</code></li>
+                <li>Você pode depois vincular a um produto real se desejar</li>
+            </ul>
+        </div>
+        <div class="col-md-6">
+            <div class="alert alert-info">
+                <strong>💡 Dica:</strong> Depois de criar os produtos, vá para 
+                <a href="/produtos_automaticos" class="alert-link">Vincular Produtos</a>
+                para associar aos produtos reais do estoque.
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <a href="/lista_vendas" class="btn btn-secondary">← Voltar para Vendas</a>
+        <a href="/produtos" class="btn btn-secondary">Produtos</a>
+        <a href="/ml_sincronizar_view" class="btn btn-primary">Sincronizar ML</a>
+    </div>
+</div>
+
+<style>
+    .badge {
+        font-size: 0.85rem;
+        padding: 0.35rem 0.65rem;
+    }
+</style>
+{% endblock %}

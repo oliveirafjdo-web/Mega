@@ -495,6 +495,11 @@
         <span>Vendas</span>
       </a>
 
+      <a href="{{ url_for('criar_produtos_de_vendas') }}" class="nav-link {% if request.endpoint == 'criar_produtos_de_vendas' %}active{% endif %}">
+        <i class="bi bi-hammer"></i>
+        <span>Criar Produtos</span>
+      </a>
+
       <a href="{{ url_for('relatorio_lucro') }}" class="nav-link {% if request.endpoint == 'relatorio_lucro' %}active{% endif %}">
         <i class="bi bi-graph-up-arrow"></i>
         <span>Relatório de Lucro</span>

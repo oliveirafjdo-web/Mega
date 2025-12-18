@@ -3213,6 +3213,132 @@ def deletar_produto_automatico(produto_id):
     return redirect(url_for("produtos_automaticos"))
 
 
+@app.route("/criar_produtos_de_vendas", methods=["GET"])
+@login_required
+def criar_produtos_de_vendas():
+    """Lista vendas sem produto e permite criar produtos em massa"""
+    with engine.begin() as conn:
+        # Vendas sem produto válido (produto_id NULL ou produto não existe)
+        vendas_sem_produto = conn.execute(
+            select(
+                vendas.c.id,
+                vendas.c.origem,
+                vendas.c.numero_venda_ml,
+                vendas.c.lote_importacao,
+                func.coalesce(produtos.c.nome, 'SEM PRODUTO').label('produto_nome')
+            )
+            .outerjoin(produtos, vendas.c.produto_id == produtos.c.id)
+            .where(
+                (vendas.c.produto_id == None) | (produtos.c.id == None)
+            )
+            .order_by(vendas.c.data_venda.desc())
+        ).mappings().all()
+        
+        # Contar lotes únicos de vendas sem produto
+        lotes_sem_produto = conn.execute(
+            select(
+                vendas.c.lote_importacao,
+                func.count(vendas.c.id).label('total')
+            )
+            .where(
+                (vendas.c.produto_id == None) | (vendas.c.produto_id.notin_(
+                    select(produtos.c.id)
+                ))
+            )
+            .group_by(vendas.c.lote_importacao)
+            .order_by(func.count(vendas.c.id).desc())
+        ).mappings().all()
+    
+    return render_template(
+        "criar_produtos_de_vendas.html",
+        vendas_sem_produto=vendas_sem_produto,
+        lotes_sem_produto=lotes_sem_produto
+    )
+
+
+@app.route("/processar_vendas_sem_produto", methods=["POST"])
+@login_required
+def processar_vendas_sem_produto():
+    """Cria produtos automaticamente para todas as vendas sem produto"""
+    try:
+        with engine.begin() as conn:
+            # Buscar todas as vendas sem produto
+            vendas_list = conn.execute(
+                select(vendas)
+                .where(
+                    (vendas.c.produto_id == None) | (vendas.c.produto_id.notin_(
+                        select(produtos.c.id)
+                    ))
+                )
+            ).mappings().all()
+            
+            produtos_criados = 0
+            vendas_vinculadas = 0
+            
+            for venda in vendas_list:
+                # Gerar nome do produto baseado na venda
+                nome_produto = f"Venda {venda['numero_venda_ml'] or venda['id']}"
+                if venda['origem']:
+                    nome_produto = f"{venda['origem']} - {nome_produto}"
+                
+                # Verificar se já existe um produto com esse padrão
+                produto_existente = conn.execute(
+                    select(produtos.c.id)
+                    .where(produtos.c.nome == nome_produto)
+                ).first()
+                
+                if not produto_existente:
+                    # Criar novo produto
+                    try:
+                        result = conn.execute(
+                            insert(produtos).values(
+                                nome=nome_produto,
+                                sku=None,
+                                custo_unitario=0,
+                                preco_venda_sugerido=venda['preco_venda_unitario'],
+                                estoque_inicial=0,
+                                estoque_atual=0,
+                                criado_automaticamente='true'
+                            )
+                        )
+                        produto_id = result.inserted_primary_key[0]
+                        produtos_criados += 1
+                    except Exception as e:
+                        # Fallback se coluna não existir
+                        if "criado_automaticamente" in str(e):
+                            result = conn.execute(
+                                insert(produtos).values(
+                                    nome=nome_produto,
+                                    sku=None,
+                                    custo_unitario=0,
+                                    preco_venda_sugerido=venda['preco_venda_unitario'],
+                                    estoque_inicial=0,
+                                    estoque_atual=0
+                                )
+                            )
+                            produto_id = result.inserted_primary_key[0]
+                            produtos_criados += 1
+                        else:
+                            raise
+                else:
+                    produto_id = produto_existente[0]
+                
+                # Vincular venda ao produto
+                if venda['produto_id'] != produto_id:
+                    conn.execute(
+                        update(vendas)
+                        .where(vendas.c.id == venda['id'])
+                        .values(produto_id=produto_id)
+                    )
+                    vendas_vinculadas += 1
+            
+            flash(f"✅ Sucesso! {produtos_criados} produtos criados, {vendas_vinculadas} vendas vinculadas", "success")
+    except Exception as e:
+        flash(f"❌ Erro ao processar: {e}", "danger")
+    
+    return redirect(url_for("criar_produtos_de_vendas"))
+
+
 # Iniciar scheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=sincronizar_automaticamente, trigger="interval", minutes=5, id='ml_sync')
