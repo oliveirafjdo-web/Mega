@@ -2577,23 +2577,38 @@ def ml_sincronizar():
                         sku = item['item'].get('seller_custom_field')
                         titulo = item['item']['title']
                         
-                        # Buscar produto
+                        # Buscar produto com fallback inteligente
                         produto_row = None
+                        
+                        # 1. Tentar por SKU exato
                         if sku:
                             produto_row = conn.execute(
                                 select(produtos.c.id, produtos.c.custo_unitario)
                                 .where(produtos.c.sku == sku)
                             ).mappings().first()
                         
+                        # 2. Tentar por nome exato
                         if not produto_row and titulo:
                             produto_row = conn.execute(
                                 select(produtos.c.id, produtos.c.custo_unitario)
                                 .where(produtos.c.nome == titulo)
                             ).mappings().first()
                         
+                        # 3. Tentar por busca parcial (LIKE) - extrair palavras-chave
+                        if not produto_row and titulo:
+                            # Pega as primeiras palavras do título para busca parcial
+                            palavras = titulo.split()[:3]  # Primeiras 3 palavras
+                            termo_busca = ' '.join(palavras)
+                            
+                            produto_row = conn.execute(
+                                select(produtos.c.id, produtos.c.custo_unitario)
+                                .where(produtos.c.nome.ilike(f'%{termo_busca}%'))
+                                .limit(1)
+                            ).mappings().first()
+                        
                         if not produto_row:
                             vendas_sem_produto += 1
-                            print(f"⚠️ Produto não localizado - SKU: {sku or 'vazio'} | Título: {titulo}")
+                            print(f"⚠️ Produto não localizado - SKU: {sku or 'vazio'} | Título: {titulo[:80]}")
                             continue
                         
                         # Extrair dados
@@ -2727,18 +2742,33 @@ def ml_sincronizar_hoje():
                         sku = item['item'].get('seller_custom_field')
                         titulo = item['item']['title']
                         
-                        # Buscar produto
+                        # Buscar produto com fallback inteligente
                         produto_row = None
+                        
+                        # 1. Tentar por SKU exato
                         if sku:
                             produto_row = conn.execute(
                                 select(produtos.c.id, produtos.c.custo_unitario)
                                 .where(produtos.c.sku == sku)
                             ).mappings().first()
                         
+                        # 2. Tentar por nome exato
                         if not produto_row and titulo:
                             produto_row = conn.execute(
                                 select(produtos.c.id, produtos.c.custo_unitario)
                                 .where(produtos.c.nome == titulo)
+                            ).mappings().first()
+                        
+                        # 3. Tentar por busca parcial (LIKE) - extrair palavras-chave
+                        if not produto_row and titulo:
+                            # Pega as primeiras palavras do título para busca parcial
+                            palavras = titulo.split()[:3]  # Primeiras 3 palavras
+                            termo_busca = ' '.join(palavras)
+                            
+                            produto_row = conn.execute(
+                                select(produtos.c.id, produtos.c.custo_unitario)
+                                .where(produtos.c.nome.ilike(f'%{termo_busca}%'))
+                                .limit(1)
                             ).mappings().first()
                         
                         if not produto_row:
