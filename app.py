@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, date, timedelta
 from io import BytesIO
+import requests
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
