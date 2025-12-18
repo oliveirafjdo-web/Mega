@@ -223,6 +223,63 @@ def excluir_lote_venda(lote):
         print(f"[DEBUG] deleted.rowcount: {deleted.rowcount}")
     flash(f"Lote de vendas {lote} excluído ({deleted.rowcount} vendas).", "success")
     return redirect(url_for("lista_vendas"))
+
+
+@app.route("/gerenciar_lotes", methods=["GET"])
+@login_required
+def gerenciar_lotes():
+    """Lista todos os lotes de importação com opção de exclusão em massa"""
+    with engine.begin() as conn:
+        lotes = conn.execute(
+            select(
+                vendas.c.lote_importacao,
+                func.count(vendas.c.id).label('total_vendas'),
+                func.min(vendas.c.data_venda).label('primeira_data'),
+                func.max(vendas.c.data_venda).label('ultima_data'),
+                func.sum(vendas.c.receita_total).label('receita_total')
+            )
+            .where(vendas.c.lote_importacao != None)
+            .group_by(vendas.c.lote_importacao)
+            .order_by(vendas.c.lote_importacao.desc())
+        ).mappings().all()
+    
+    return render_template("gerenciar_lotes.html", lotes=lotes)
+
+
+@app.route("/deletar_lotes_em_massa", methods=["POST"])
+@login_required
+def deletar_lotes_em_massa():
+    """Deleta múltiplos lotes selecionados"""
+    lotes_selecionados = request.form.getlist("lotes_selecionados")
+    
+    if not lotes_selecionados:
+        flash("Selecione pelo menos um lote para deletar", "warning")
+        return redirect(url_for("gerenciar_lotes"))
+    
+    try:
+        total_deletado = 0
+        with engine.begin() as conn:
+            for lote in lotes_selecionados:
+                # Contar vendas antes
+                count = conn.execute(
+                    select(func.count()).select_from(vendas)
+                    .where(vendas.c.lote_importacao == lote)
+                ).scalar()
+                
+                # Deletar
+                conn.execute(
+                    delete(vendas)
+                    .where(vendas.c.lote_importacao == lote)
+                )
+                total_deletado += count
+                print(f"[LOTE DELETADO] {lote} - {count} vendas")
+        
+        flash(f"✅ {len(lotes_selecionados)} lotes deletados! Total de {total_deletado} vendas removidas.", "success")
+    except Exception as e:
+        flash(f"❌ Erro ao deletar: {e}", "danger")
+    
+    return redirect(url_for("gerenciar_lotes"))
+
 # --------------------------------------------------------------------
 produtos = Table(
     "produtos",

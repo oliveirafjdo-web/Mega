@@ -495,6 +495,11 @@
         <span>Vendas</span>
       </a>
 
+      <a href="{{ url_for('gerenciar_lotes') }}" class="nav-link {% if request.endpoint == 'gerenciar_lotes' %}active{% endif %}">
+        <i class="bi bi-trash"></i>
+        <span>Gerenciar Lotes</span>
+      </a>
+
       <a href="{{ url_for('criar_produtos_de_vendas') }}" class="nav-link {% if request.endpoint == 'criar_produtos_de_vendas' %}active{% endif %}">
         <i class="bi bi-hammer"></i>
         <span>Criar Produtos</span>

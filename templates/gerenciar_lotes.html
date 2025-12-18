@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}Gerenciar Lotes de Vendas{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-boxes"></i> Gerenciar Lotes de Importação</h2>
+        <a href="/lista_vendas" class="btn btn-secondary">← Voltar</a>
+    </div>
+
+    {% if lotes %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            Total de <strong>{{ lotes|length }} lotes</strong> encontrados.
+            Selecione os lotes para deletar em massa.
+        </div>
+
+        <form method="POST" action="/deletar_lotes_em_massa" id="formLotes">
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
+                    <label class="form-check-label fw-bold" for="selectAll">
+                        Selecionar TODOS os lotes
+                    </label>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th width="50">
+                                <input type="checkbox" class="form-check-input" onchange="updateSelectAll()">
+                            </th>
+                            <th>Lote</th>
+                            <th>Total de Vendas</th>
+                            <th>Período</th>
+                            <th>Receita Total</th>
+                            <th>Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for lote in lotes %}
+                            <tr>
+                                <td>
+                                    <input type="checkbox" class="form-check-input lote-checkbox" 
+                                           name="lotes_selecionados" value="{{ lote.lote_importacao }}"
+                                           onchange="updateSelectAll()">
+                                </td>
+                                <td>
+                                    <strong>{{ lote.lote_importacao }}</strong>
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">{{ lote.total_vendas }}</span>
+                                </td>
+                                <td>
+                                    <small class="text-muted">
+                                        {% if lote.primeira_data %}
+                                            {{ lote.primeira_data[:10] }} até {{ lote.ultima_data[:10] }}
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </small>
+                                </td>
+                                <td>
+                                    <strong>
+                                        {% if lote.receita_total %}
+                                            R$ {{ "%.2f"|format(lote.receita_total) }}
+                                        {% else %}
+                                            R$ 0,00
+                                        {% endif %}
+                                    </strong>
+                                </td>
+                                <td>
+                                    <form method="POST" action="/excluir_lote_venda/{{ lote.lote_importacao }}" 
+                                          style="display: inline;" 
+                                          onsubmit="return confirm('Deletar este lote com {{ lote.total_vendas }} vendas?')">
+                                        <button type="submit" class="btn btn-sm btn-danger">
+                                            <i class="bi bi-trash"></i> Deletar
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <hr>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <span id="contadorSelecionados">0</span> lote(s) selecionado(s)
+                            </h6>
+                            <p class="text-muted small mb-0" id="totalVendasSelecionadas">
+                                Total: 0 vendas
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 text-end">
+                    <button type="submit" class="btn btn-danger btn-lg" id="btnDeletar" disabled
+                            onclick="return confirm('Tem certeza que deseja deletar os lotes selecionados?')">
+                        <i class="bi bi-trash"></i> Deletar Selecionados
+                    </button>
+                </div>
+            </div>
+        </form>
+    {% else %}
+        <div class="alert alert-success">
+            ✅ Nenhum lote de vendas encontrado!
+        </div>
+    {% endif %}
+
+    <hr class="my-5">
+
+    <div class="row">
+        <div class="col-md-6">
+            <h5>📖 Como usar:</h5>
+            <ul>
+                <li>Marque os lotes que deseja deletar</li>
+                <li>Use "Selecionar TODOS" para marcar rapidamente</li>
+                <li>Clique em "Deletar Selecionados" para remover em massa</li>
+                <li>Ou delete um lote individualmente clicando em "Deletar"</li>
+            </ul>
+        </div>
+        <div class="col-md-6">
+            <div class="alert alert-warning">
+                <strong>⚠️ Atenção:</strong> A exclusão é permanente e não pode ser desfeita.
+                As vendas serão removidas do banco de dados.
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleSelectAll(checkbox) {
+    const checkboxes = document.querySelectorAll('.lote-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelectAll();
+}
+
+function updateSelectAll() {
+    const checkboxes = document.querySelectorAll('.lote-checkbox');
+    const selectAll = document.getElementById('selectAll');
+    const selecionados = Array.from(checkboxes).filter(cb => cb.checked).length;
+    
+    // Atualizar checkbox "Selecionar TODOS"
+    selectAll.checked = selecionados === checkboxes.length && checkboxes.length > 0;
+    selectAll.indeterminate = selecionados > 0 && selecionados < checkboxes.length;
+    
+    // Atualizar contador
+    document.getElementById('contadorSelecionados').textContent = selecionados;
+    
+    // Calcular total de vendas selecionadas
+    const totalVendas = Array.from(document.querySelectorAll('tbody tr')).reduce((total, row) => {
+        const checkbox = row.querySelector('.lote-checkbox');
+        if (checkbox.checked) {
+            const badge = row.querySelector('.badge');
+            const vendas = parseInt(badge.textContent) || 0;
+            return total + vendas;
+        }
+        return total;
+    }, 0);
+    
+    document.getElementById('totalVendasSelecionadas').textContent = `Total: ${totalVendas} vendas`;
+    
+    // Habilitar/desabilitar botão de deletar
+    document.getElementById('btnDeletar').disabled = selecionados === 0;
+}
+
+// Inicializar ao carregar
+document.addEventListener('DOMContentLoaded', updateSelectAll);
+</script>
+
+<style>
+    .table-hover tbody tr:hover {
+        background-color: #f5f5f5;
+    }
+    
+    #btnDeletar:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+</style>
+{% endblock %}
