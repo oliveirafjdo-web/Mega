@@ -2550,6 +2550,8 @@ def ml_sincronizar():
         
         vendas_importadas = 0
         vendas_sem_produto = 0
+        vendas_duplicadas = 0
+        total_pedidos = 0
         offset = 0
         MAX_VENDAS = 500  # Limite máximo para não estourar memória
         
@@ -2569,6 +2571,7 @@ def ml_sincronizar():
             
             # Processar cada venda com commit imediato
             for order in orders:
+                total_pedidos += 1
                 if vendas_importadas >= MAX_VENDAS:
                     break
                     
@@ -2624,6 +2627,7 @@ def ml_sincronizar():
                         
                         if venda_existente:
                             # Pular venda duplicada
+                            vendas_duplicadas += 1
                             continue
                         
                         # Inserir venda
@@ -2666,7 +2670,15 @@ def ml_sincronizar():
             # Feedback de progresso
             print(f"API ML: {vendas_importadas} vendas importadas...")
         
-        flash(f"✅ Sincronizado! {vendas_importadas} vendas importadas, {vendas_sem_produto} sem produto", "success")
+        # Montar mensagem detalhada
+        msg = f"✅ Sincronizado! {total_pedidos} pedidos processados: "
+        msg += f"{vendas_importadas} vendas importadas"
+        if vendas_duplicadas > 0:
+            msg += f", {vendas_duplicadas} duplicadas (já existiam)"
+        if vendas_sem_produto > 0:
+            msg += f", {vendas_sem_produto} sem produto cadastrado"
+        
+        flash(msg, "success")
         return redirect(url_for("lista_vendas"))
         
     except Exception as e:
@@ -2703,6 +2715,8 @@ def ml_sincronizar_hoje():
         
         vendas_importadas = 0
         vendas_sem_produto = 0
+        vendas_duplicadas = 0
+        total_pedidos = 0
         offset = 0
         
         while True:
@@ -2721,6 +2735,7 @@ def ml_sincronizar_hoje():
             
             # Processar cada venda
             for order in orders:
+                total_pedidos += 1
                 with engine.begin() as conn:
                     for item in order.get('order_items', []):
                         sku = item['item'].get('seller_custom_field')
@@ -2766,6 +2781,7 @@ def ml_sincronizar_hoje():
                         ).first()
                         
                         if venda_existente:
+                            vendas_duplicadas += 1
                             continue
                         
                         # Inserir venda
@@ -2800,7 +2816,15 @@ def ml_sincronizar_hoje():
                 break
             offset += 50
         
-        flash(f"✅ Hoje: {vendas_importadas} vendas importadas, {vendas_sem_produto} sem produto", "success")
+        # Montar mensagem detalhada
+        msg = f"✅ Hoje: {total_pedidos} pedidos processados: "
+        msg += f"{vendas_importadas} vendas importadas"
+        if vendas_duplicadas > 0:
+            msg += f", {vendas_duplicadas} duplicadas (já existiam)"
+        if vendas_sem_produto > 0:
+            msg += f", {vendas_sem_produto} sem produto cadastrado"
+        
+        flash(msg, "success")
         return redirect(url_for("lista_vendas"))
         
     except Exception as e:
