@@ -70,12 +70,18 @@ if raw_db_url:
                 "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_refresh_token VARCHAR(500)",
                 "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_token_expira VARCHAR(50)",
                 "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_user_id VARCHAR(100)",
+                "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_order_id VARCHAR(50)",
             ]
             for sql in alteracoes:
                 try:
                     conn.execute(text(sql))
                 except Exception:
                     pass
+            # Criar índice único para ml_order_id (ignora se já existe)
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id) WHERE ml_order_id IS NOT NULL"))
+            except Exception:
+                pass
         print("✅ Migração ML concluída")
     except Exception as e:
         print(f"⚠️ Migração: {e}")
@@ -197,6 +203,7 @@ vendas = Table(
     Column("numero_venda_ml", String(100)),
     Column("lote_importacao", String(50)),
     Column("estado", String(2)),  # UF do estado
+    Column("ml_order_id", String(50)),  # ID único do pedido ML para evitar duplicação
 )
 
 ajustes_estoque = Table(
@@ -2550,6 +2557,17 @@ def ml_sincronizar():
                         
                         data_venda = order['date_created'][:10]
                         numero_venda = str(order['id'])
+                        ml_order_id = f"{order['id']}_{item['item']['id']}"
+                        
+                        # Verificar se já existe (evitar duplicação)
+                        venda_existente = conn.execute(
+                            select(vendas.c.id)
+                            .where(vendas.c.ml_order_id == ml_order_id)
+                        ).first()
+                        
+                        if venda_existente:
+                            # Pular venda duplicada
+                            continue
                         
                         # Inserir venda
                         conn.execute(
@@ -2565,6 +2583,7 @@ def ml_sincronizar():
                                 origem="Mercado Livre API",
                                 numero_venda_ml=numero_venda,
                                 lote_importacao=f"API_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                                ml_order_id=ml_order_id,
                             )
                         )
                         
