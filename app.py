@@ -4,7 +4,7 @@ from io import BytesIO
 import requests
 import threading
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
@@ -981,9 +981,69 @@ def editar_produto(produto_id):
 
 @app.route("/produtos/<int:produto_id>/excluir", methods=["POST"])
 def excluir_produto(produto_id):
-    with engine.begin() as conn:
-        conn.execute(delete(produtos).where(produtos.c.id == produto_id))
-    flash("Produto excluído.", "success")
+    try:
+        with engine.begin() as conn:
+            # Verificar se o produto existe
+            produto = conn.execute(
+                select(produtos).where(produtos.c.id == produto_id)
+            ).mappings().first()
+            
+            if not produto:
+                flash("Produto não encontrado.", "danger")
+                return redirect(url_for("lista_produtos"))
+            
+            # Contar vendas vinculadas
+            vendas_count = conn.execute(
+                select(func.count()).select_from(vendas)
+                .where(vendas.c.produto_id == produto_id)
+            ).scalar()
+            
+            if vendas_count > 0:
+                flash(f"❌ Não é possível deletar este produto! Existem {vendas_count} vendas vinculadas a ele. "
+                      f"Delete as vendas primeiro ou use a opção de deletar produto + vendas.", "danger")
+                return redirect(url_for("editar_produto", produto_id=produto_id))
+            
+            # Deletar o produto se não houver vendas
+            conn.execute(delete(produtos).where(produtos.c.id == produto_id))
+            flash(f"✅ Produto '{produto['nome']}' excluído com sucesso.", "success")
+    except Exception as e:
+        flash(f"❌ Erro ao excluir produto: {e}", "danger")
+    
+    return redirect(url_for("lista_produtos"))
+
+
+@app.route("/produtos/<int:produto_id>/excluir_com_vendas", methods=["POST"])
+def excluir_produto_com_vendas(produto_id):
+    """Deleta o produto E todas as suas vendas associadas"""
+    try:
+        with engine.begin() as conn:
+            # Verificar se o produto existe
+            produto = conn.execute(
+                select(produtos).where(produtos.c.id == produto_id)
+            ).mappings().first()
+            
+            if not produto:
+                flash("Produto não encontrado.", "danger")
+                return redirect(url_for("lista_produtos"))
+            
+            # Contar vendas antes de deletar
+            vendas_count = conn.execute(
+                select(func.count()).select_from(vendas)
+                .where(vendas.c.produto_id == produto_id)
+            ).scalar()
+            
+            # Deletar vendas vinculadas
+            if vendas_count > 0:
+                conn.execute(delete(vendas).where(vendas.c.produto_id == produto_id))
+                print(f"[DELETE] {vendas_count} vendas do produto {produto_id} deletadas")
+            
+            # Deletar o produto
+            conn.execute(delete(produtos).where(produtos.c.id == produto_id))
+            
+            flash(f"✅ Produto '{produto['nome']}' e {vendas_count} vendas deletadas com sucesso.", "success")
+    except Exception as e:
+        flash(f"❌ Erro ao excluir: {e}", "danger")
+    
     return redirect(url_for("lista_produtos"))
 
 
@@ -3268,6 +3328,19 @@ def deletar_produto_automatico(produto_id):
         flash(f"❌ Erro ao deletar: {e}", "danger")
     
     return redirect(url_for("produtos_automaticos"))
+
+
+@app.route("/api/produto-vendas/<int:produto_id>", methods=["GET"])
+@login_required
+def api_produto_vendas(produto_id):
+    """API para obter número de vendas de um produto"""
+    with engine.begin() as conn:
+        total = conn.execute(
+            select(func.count()).select_from(vendas)
+            .where(vendas.c.produto_id == produto_id)
+        ).scalar()
+    
+    return jsonify({"total": total})
 
 
 @app.route("/criar_produtos_de_vendas", methods=["GET"])

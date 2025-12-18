@@ -101,7 +101,114 @@
       <a href="{{ url_for('lista_produtos') }}" class="btn btn-outline-light">
         <i class="bi bi-arrow-left"></i> Voltar
       </a>
+      
+      {% if produto %}
+        <div class="ms-auto">
+          <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">
+            <i class="bi bi-trash"></i> Deletar Produto
+          </button>
+        </div>
+      {% endif %}
     </div>
   </form>
 </div>
+
+{% if produto %}
+<!-- Modal para deletar -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark">
+      <div class="modal-header border-danger">
+        <h5 class="modal-title text-danger">
+          <i class="bi bi-exclamation-triangle"></i> Deletar Produto
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>Produto:</strong> {{ produto.nome }}</p>
+        <p id="vendas-info">Carregando informações...</p>
+        
+        <div class="alert alert-info mt-3" id="info-area" style="display: none;">
+          <strong>Opções de exclusão:</strong>
+          <form method="POST" id="formDeletar">
+            <div class="mt-2">
+              <label class="form-check">
+                <input type="radio" class="form-check-input" name="tipo_delete" value="normal" checked>
+                <span class="form-check-label">
+                  ❌ Deletar apenas o produto (se não tiver vendas)
+                </span>
+              </label>
+            </div>
+            <div class="mt-2" id="opcao-com-vendas" style="display: none;">
+              <label class="form-check">
+                <input type="radio" class="form-check-input" name="tipo_delete" value="com_vendas">
+                <span class="form-check-label">
+                  🗑️ Deletar produto E <strong id="vendas-count">?</strong> vendas vinculadas
+                  <small class="text-warning d-block ms-5">⚠️ ATENÇÃO: Isso também remove as vendas!</small>
+                </span>
+              </label>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="modal-footer border-danger">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" onclick="confirmarDelete()">
+          <i class="bi bi-trash"></i> Deletar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Carregar informações de vendas quando modal abre
+document.getElementById('deleteModal').addEventListener('show.bs.modal', function() {
+  fetch(`/api/produto-vendas/{{ produto.id }}`)
+    .then(r => r.json())
+    .then(data => {
+      const vendas = data.total;
+      const elem = document.getElementById('vendas-info');
+      const infoArea = document.getElementById('info-area');
+      const opcaoCom = document.getElementById('opcao-com-vendas');
+      const vendCount = document.getElementById('vendas-count');
+      
+      if (vendas === 0) {
+        elem.innerHTML = '✅ <strong>Nenhuma venda</strong> vinculada a este produto. Seguro deletar!';
+        elem.className = 'text-success';
+        infoArea.style.display = 'none';
+        opcaoCom.style.display = 'none';
+      } else {
+        elem.innerHTML = `⚠️ <strong>${vendas} venda(s)</strong> vinculada(s) a este produto.`;
+        elem.className = 'text-warning';
+        vendCount.textContent = vendas;
+        infoArea.style.display = 'block';
+        opcaoCom.style.display = 'block';
+      }
+    })
+    .catch(e => {
+      document.getElementById('vendas-info').innerHTML = '❌ Erro ao carregar informações';
+    });
+});
+
+function confirmarDelete() {
+  const tipo = document.querySelector('input[name="tipo_delete"]:checked').value;
+  const msg = tipo === 'normal' 
+    ? 'Deletar este produto?' 
+    : 'Deletar este produto E TODAS as suas vendas? Isso não pode ser desfeito!';
+  
+  if (confirm(msg)) {
+    const url = tipo === 'normal'
+      ? `/produtos/{{ produto.id }}/excluir`
+      : `/produtos/{{ produto.id }}/excluir_com_vendas`;
+    
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = url;
+    document.body.appendChild(form);
+    form.submit();
+  }
+}
+</script>
+{% endif %}
 {% endblock %}
