@@ -98,7 +98,14 @@
 </div>
 </div>
 </div>
-
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Comparativo: Mês atual x Mês anterior</div>
+                <div class="card-body">
+                    <canvas id="chartComparativo" style="height:260px;"></canvas>
+                </div>
+            </div>
+        </div>
         <!-- =========================== -->
         <!-- NOVO: PIZZA POR ESTADO (UF) -->
         <!-- =========================== -->
@@ -332,6 +339,36 @@ new Chart(document.getElementById("chartReceitaLiquida"), {
             borderColor: "#8e44ad",
             borderWidth: 2
         }]
+    },
+    options: baseConfig
+});
+
+new Chart(document.getElementById("chartComparativo"), {
+    type: "line",
+    data: {
+        labels: labelsCmp,
+        datasets: [
+            {
+                label: "Mês atual",
+                data: dadosAtual,
+                borderColor: "#3498db",
+                backgroundColor: "rgba(52,152,219,0.2)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+                borderWidth: 2
+            },
+            {
+                label: "Mês anterior",
+                data: dadosAnterior,
+                borderColor: "#ff0000",
+                backgroundColor: "rgba(255,0,0,0.20)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+                borderWidth: 3
+            }
+        ]
     },
     options: baseConfig
 });
