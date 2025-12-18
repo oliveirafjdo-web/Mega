@@ -2593,6 +2593,7 @@ def ml_sincronizar():
                         
                         if not produto_row:
                             vendas_sem_produto += 1
+                            print(f"⚠️ Produto não localizado - SKU: {sku or 'vazio'} | Título: {titulo}")
                             continue
                         
                         # Extrair dados
@@ -2742,6 +2743,7 @@ def ml_sincronizar_hoje():
                         
                         if not produto_row:
                             vendas_sem_produto += 1
+                            print(f"⚠️ Produto não localizado - SKU: {sku or 'vazio'} | Título: {titulo}")
                             continue
                         
                         # Extrair dados
