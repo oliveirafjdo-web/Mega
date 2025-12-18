@@ -459,6 +459,11 @@
         <span>Estoque & Reposição</span>
       </a>
 
+      <a href="{{ url_for('importar_ml_view') }}" class="nav-link {% if request.endpoint == 'importar_ml_view' %}active{% endif %}">
+        <i class="bi bi-cloud-arrow-up"></i>
+        <span>Importar Vendas ML</span>
+      </a>
+
       <a href="{{ url_for('importar_mp_view') }}" class="nav-link {% if request.endpoint == 'importar_mp_view' %}active{% endif %}">
         <i class="bi bi-bank"></i>
         <span>Importar Mercado Pago</span>
