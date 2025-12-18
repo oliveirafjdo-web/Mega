@@ -459,16 +459,6 @@
         <span>Estoque & Reposição</span>
       </a>
 
-      <a href="{{ url_for('ml_sincronizar_view') }}" class="nav-link {% if request.endpoint in ['ml_sincronizar_view','ml_configurar','ml_conectar'] %}active{% endif %}">
-        <i class="bi bi-arrow-repeat"></i>
-        <span>Sincronizar ML (API)</span>
-      </a>
-
-      <a href="{{ url_for('importar_ml_view') }}" class="nav-link {% if request.endpoint == 'importar_ml_view' %}active{% endif %}">
-        <i class="bi bi-cloud-arrow-up"></i>
-        <span>Importar Vendas ML</span>
-      </a>
-
       <a href="{{ url_for('importar_mp_view') }}" class="nav-link {% if request.endpoint == 'importar_mp_view' %}active{% endif %}">
         <i class="bi bi-bank"></i>
         <span>Importar Mercado Pago</span>

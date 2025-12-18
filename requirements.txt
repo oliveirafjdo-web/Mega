@@ -9,4 +9,3 @@ flask-login
 flask-bcrypt
 requests
 pypdf
-APScheduler
