@@ -2,8 +2,10 @@ import os
 from datetime import datetime, date, timedelta
 from io import BytesIO
 import requests
+import threading
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from apscheduler.schedulers.background import BackgroundScheduler
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
@@ -72,6 +74,8 @@ if raw_db_url:
                 "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_user_id VARCHAR(100)",
                 "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_order_id VARCHAR(50)",
                 "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_status VARCHAR(50)",
+                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_sync_auto VARCHAR(10) DEFAULT 'false'",
+                "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_ultimo_sync VARCHAR(50)",
             ]
             for sql in alteracoes:
                 try:
@@ -232,6 +236,8 @@ configuracoes = Table(
     Column("ml_refresh_token", String(500)),
     Column("ml_token_expira", String(50)),
     Column("ml_user_id", String(100)),
+    Column("ml_sync_auto", String(10), server_default="false"),  # ativar sync automática
+    Column("ml_ultimo_sync", String(50)),  # última sincronização automática
 )
 
 finance_transactions = Table(
@@ -2623,6 +2629,309 @@ def ml_sincronizar():
         import traceback
         traceback.print_exc()
         return redirect(url_for("ml_sincronizar_view"))
+
+
+@app.route("/ml_sincronizar_hoje", methods=["POST"])
+@login_required
+def ml_sincronizar_hoje():
+    """Sincroniza apenas as vendas de hoje"""
+    hoje = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        access_token = refresh_ml_token()
+        if not access_token:
+            flash("Token expirado. Reconecte sua conta.", "danger")
+            return redirect(url_for("ml_conectar"))
+        
+        config = get_ml_config()
+        user_id = config['user_id']
+        
+        # Buscar vendas de hoje
+        url = f"https://api.mercadolibre.com/orders/search"
+        params = {
+            'seller': user_id,
+            'order.date_created.from': f"{hoje}T00:00:00.000-00:00",
+            'order.date_created.to': f"{hoje}T23:59:59.999-00:00",
+            'limit': 50,
+        }
+        headers = {'Authorization': f'Bearer {access_token}'}
+        
+        vendas_importadas = 0
+        vendas_sem_produto = 0
+        offset = 0
+        
+        while True:
+            params['offset'] = offset
+            response = requests.get(url, params=params, headers=headers)
+            
+            if response.status_code != 200:
+                flash(f"Erro ao buscar vendas: {response.text}", "danger")
+                break
+            
+            data = response.json()
+            orders = data.get('results', [])
+            
+            if not orders:
+                break
+            
+            # Processar cada venda
+            for order in orders:
+                with engine.begin() as conn:
+                    for item in order.get('order_items', []):
+                        sku = item['item'].get('seller_custom_field')
+                        titulo = item['item']['title']
+                        
+                        # Buscar produto
+                        produto_row = None
+                        if sku:
+                            produto_row = conn.execute(
+                                select(produtos.c.id, produtos.c.custo_unitario)
+                                .where(produtos.c.sku == sku)
+                            ).mappings().first()
+                        
+                        if not produto_row and titulo:
+                            produto_row = conn.execute(
+                                select(produtos.c.id, produtos.c.custo_unitario)
+                                .where(produtos.c.nome == titulo)
+                            ).mappings().first()
+                        
+                        if not produto_row:
+                            vendas_sem_produto += 1
+                            continue
+                        
+                        # Extrair dados
+                        produto_id = produto_row['id']
+                        custo_unitario = float(produto_row['custo_unitario'] or 0)
+                        quantidade = item['quantity']
+                        preco_unitario = item['unit_price']
+                        receita_total = item['full_unit_price'] * quantidade
+                        comissao_ml = receita_total * 0.15
+                        custo_total = custo_unitario * quantidade
+                        margem = receita_total - custo_total - comissao_ml
+                        
+                        data_venda = order['date_created'][:10]
+                        numero_venda = str(order['id'])
+                        ml_order_id = f"{order['id']}_{item['item']['id']}"
+                        ml_status = order.get('status', 'unknown')
+                        
+                        # Verificar se já existe
+                        venda_existente = conn.execute(
+                            select(vendas.c.id)
+                            .where(vendas.c.ml_order_id == ml_order_id)
+                        ).first()
+                        
+                        if venda_existente:
+                            continue
+                        
+                        # Inserir venda
+                        conn.execute(
+                            insert(vendas).values(
+                                produto_id=produto_id,
+                                data_venda=data_venda,
+                                quantidade=quantidade,
+                                preco_venda_unitario=preco_unitario,
+                                receita_total=receita_total,
+                                comissao_ml=comissao_ml,
+                                custo_total=custo_total,
+                                margem_contribuicao=margem,
+                                origem="Mercado Livre API",
+                                numero_venda_ml=numero_venda,
+                                lote_importacao=f"DIA_{hoje}",
+                                ml_order_id=ml_order_id,
+                                ml_status=ml_status,
+                            )
+                        )
+                        
+                        # Atualizar estoque
+                        conn.execute(
+                            update(produtos)
+                            .where(produtos.c.id == produto_id)
+                            .values(estoque_atual=produtos.c.estoque_atual - quantidade)
+                        )
+                        
+                        vendas_importadas += 1
+            
+            if len(orders) < 50:
+                break
+            offset += 50
+        
+        flash(f"✅ Hoje: {vendas_importadas} vendas importadas, {vendas_sem_produto} sem produto", "success")
+        return redirect(url_for("lista_vendas"))
+        
+    except Exception as e:
+        flash(f"Erro na sincronização: {str(e)}", "danger")
+        return redirect(url_for("ml_sincronizar_view"))
+
+
+def sincronizar_automaticamente():
+    """Função executada pelo scheduler a cada 5 minutos"""
+    with app.app_context():
+        try:
+            with engine.connect() as conn:
+                config_row = conn.execute(
+                    select(configuracoes)
+                ).mappings().first()
+                
+                if not config_row or config_row.get('ml_sync_auto') != 'true':
+                    return
+                
+                if not config_row.get('access_token'):
+                    return
+            
+            # Sincronizar hoje
+            access_token = refresh_ml_token()
+            if not access_token:
+                print("⚠️ Sync auto: token inválido")
+                return
+            
+            with engine.connect() as conn:
+                config_row = conn.execute(
+                    select(configuracoes)
+                ).mappings().first()
+                
+                user_id = config_row['ml_user_id']
+            
+            hoje = datetime.now().strftime('%Y-%m-%d')
+            url = f"https://api.mercadolibre.com/orders/search"
+            params = {
+                'seller': user_id,
+                'order.date_created.from': f"{hoje}T00:00:00.000-00:00",
+                'order.date_created.to': f"{hoje}T23:59:59.999-00:00",
+                'limit': 50,
+            }
+            headers = {'Authorization': f'Bearer {access_token}'}
+            
+            vendas_importadas = 0
+            offset = 0
+            
+            while offset < 200:  # Limite de segurança
+                params['offset'] = offset
+                response = requests.get(url, params=params, headers=headers, timeout=10)
+                
+                if response.status_code != 200:
+                    break
+                
+                data = response.json()
+                orders = data.get('results', [])
+                
+                if not orders:
+                    break
+                
+                for order in orders:
+                    with engine.begin() as conn:
+                        for item in order.get('order_items', []):
+                            sku = item['item'].get('seller_custom_field')
+                            titulo = item['item']['title']
+                            
+                            produto_row = None
+                            if sku:
+                                produto_row = conn.execute(
+                                    select(produtos.c.id, produtos.c.custo_unitario)
+                                    .where(produtos.c.sku == sku)
+                                ).mappings().first()
+                            
+                            if not produto_row and titulo:
+                                produto_row = conn.execute(
+                                    select(produtos.c.id, produtos.c.custo_unitario)
+                                    .where(produtos.c.nome == titulo)
+                                ).mappings().first()
+                            
+                            if not produto_row:
+                                continue
+                            
+                            produto_id = produto_row['id']
+                            custo_unitario = float(produto_row['custo_unitario'] or 0)
+                            quantidade = item['quantity']
+                            preco_unitario = item['unit_price']
+                            receita_total = item['full_unit_price'] * quantidade
+                            comissao_ml = receita_total * 0.15
+                            custo_total = custo_unitario * quantidade
+                            margem = receita_total - custo_total - comissao_ml
+                            
+                            data_venda = order['date_created'][:10]
+                            numero_venda = str(order['id'])
+                            ml_order_id = f"{order['id']}_{item['item']['id']}"
+                            ml_status = order.get('status', 'unknown')
+                            
+                            venda_existente = conn.execute(
+                                select(vendas.c.id)
+                                .where(vendas.c.ml_order_id == ml_order_id)
+                            ).first()
+                            
+                            if venda_existente:
+                                continue
+                            
+                            conn.execute(
+                                insert(vendas).values(
+                                    produto_id=produto_id,
+                                    data_venda=data_venda,
+                                    quantidade=quantidade,
+                                    preco_venda_unitario=preco_unitario,
+                                    receita_total=receita_total,
+                                    comissao_ml=comissao_ml,
+                                    custo_total=custo_total,
+                                    margem_contribuicao=margem,
+                                    origem="Mercado Livre API Auto",
+                                    numero_venda_ml=numero_venda,
+                                    lote_importacao=f"AUTO_{datetime.now().strftime('%Y%m%d_%H%M')}",
+                                    ml_order_id=ml_order_id,
+                                    ml_status=ml_status,
+                                )
+                            )
+                            
+                            conn.execute(
+                                update(produtos)
+                                .where(produtos.c.id == produto_id)
+                                .values(estoque_atual=produtos.c.estoque_atual - quantidade)
+                            )
+                            
+                            vendas_importadas += 1
+                
+                if len(orders) < 50:
+                    break
+                offset += 50
+            
+            # Atualizar último sync
+            with engine.begin() as conn:
+                conn.execute(
+                    update(configuracoes)
+                    .values(ml_ultimo_sync=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                )
+            
+            print(f"✅ Sync automática: {vendas_importadas} vendas importadas")
+            
+        except Exception as e:
+            print(f"⚠️ Erro sync automática: {e}")
+
+
+@app.route("/ml_toggle_sync_auto", methods=["POST"])
+@login_required
+def ml_toggle_sync_auto():
+    """Ativa/desativa sincronização automática"""
+    ativar = request.form.get("ativar") == "true"
+    
+    with engine.begin() as conn:
+        conn.execute(
+            update(configuracoes)
+            .values(ml_sync_auto='true' if ativar else 'false')
+        )
+    
+    if ativar:
+        flash("✅ Sincronização automática ativada! Buscará vendas a cada 5 minutos.", "success")
+    else:
+        flash("⏸️ Sincronização automática desativada.", "info")
+    
+    return redirect(url_for("ml_sincronizar_view"))
+
+
+# Iniciar scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=sincronizar_automaticamente, trigger="interval", minutes=5, id='ml_sync')
+scheduler.start()
+
+# Garantir que o scheduler seja desligado ao encerrar
+import atexit
+atexit.register(lambda: scheduler.shutdown())
 
 
 if __name__ == "__main__":
