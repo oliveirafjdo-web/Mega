@@ -71,6 +71,7 @@ if raw_db_url:
                 "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_token_expira VARCHAR(50)",
                 "ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS ml_user_id VARCHAR(100)",
                 "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_order_id VARCHAR(50)",
+                "ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ml_status VARCHAR(50)",
             ]
             for sql in alteracoes:
                 try:
@@ -204,6 +205,7 @@ vendas = Table(
     Column("lote_importacao", String(50)),
     Column("estado", String(2)),  # UF do estado
     Column("ml_order_id", String(50)),  # ID único do pedido ML para evitar duplicação
+    Column("ml_status", String(50)),  # Status da venda ML: paid, confirmed, ready_to_ship, shipped, delivered, cancelled
 )
 
 ajustes_estoque = Table(
@@ -2559,6 +2561,10 @@ def ml_sincronizar():
                         numero_venda = str(order['id'])
                         ml_order_id = f"{order['id']}_{item['item']['id']}"
                         
+                        # Capturar status do pedido (confirmed, ready_to_ship, shipped, delivered, etc.)
+                        # Importa TODOS os status: para envio, em trânsito e finalizadas
+                        ml_status = order.get('status', 'unknown')
+                        
                         # Verificar se já existe (evitar duplicação)
                         venda_existente = conn.execute(
                             select(vendas.c.id)
@@ -2584,6 +2590,7 @@ def ml_sincronizar():
                                 numero_venda_ml=numero_venda,
                                 lote_importacao=f"API_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                                 ml_order_id=ml_order_id,
+                                ml_status=ml_status,
                             )
                         )
                         
