@@ -235,6 +235,8 @@ produtos = Table(
     Column("estoque_inicial", Integer, nullable=False, server_default="0"),
     Column("estoque_atual", Integer, nullable=False, server_default="0"),
     Column("curva", String(1)),
+    Column("criado_automaticamente", String(10), server_default="false"),  # true se criado pelo ML
+    Column("vinculado_a", Integer, ForeignKey("produtos.id")),  # ref para produto real se criado automaticamente
 )
 
 vendas = Table(
@@ -336,6 +338,22 @@ def init_db():
             cols = [c["name"] for c in insp.get_columns("finance_transactions")]
             if "lote_importacao" not in cols:
                 conn.execute(text('ALTER TABLE finance_transactions ADD COLUMN lote_importacao TEXT'))
+        except Exception:
+            pass
+
+        # produtos.criado_automaticamente
+        try:
+            cols = [c["name"] for c in insp.get_columns("produtos")]
+            if "criado_automaticamente" not in cols:
+                conn.execute(text('ALTER TABLE produtos ADD COLUMN criado_automaticamente VARCHAR(10) DEFAULT "false"'))
+        except Exception:
+            pass
+
+        # produtos.vinculado_a
+        try:
+            cols = [c["name"] for c in insp.get_columns("produtos")]
+            if "vinculado_a" not in cols:
+                conn.execute(text('ALTER TABLE produtos ADD COLUMN vinculado_a INTEGER'))
         except Exception:
             pass
 
@@ -2606,10 +2624,38 @@ def ml_sincronizar():
                                 .limit(1)
                             ).mappings().first()
                         
+                        # 4. Criar produto automaticamente se não encontrar
                         if not produto_row:
-                            vendas_sem_produto += 1
-                            print(f"⚠️ Produto não localizado - SKU: {sku or 'vazio'} | Título: {titulo[:80]}")
-                            continue
+                            print(f"➕ Criando produto automaticamente - Título: {titulo[:80]}")
+                            result = conn.execute(
+                                insert(produtos).values(
+                                    nome=titulo,
+                                    sku=None,
+                                    custo_unitario=0,
+                                    preco_venda_sugerido=0,
+                                    estoque_inicial=0,
+                                    estoque_atual=0,
+                                    criado_automaticamente='true'
+                                )
+                            )
+                            produto_id = result.inserted_primary_key[0]
+                            produto_row = {
+                                'id': produto_id,
+                                'custo_unitario': 0
+                            }
+                        else:
+                            produto_id = produto_row['id']
+                        
+                        # Verificar se foi vinculado a outro produto
+                        if produto_row and 'vinculado_a' in produto_row and produto_row['vinculado_a']:
+                            # Se foi vinculado, usar o produto real
+                            produto_id = produto_row['vinculado_a']
+                            real_produto = conn.execute(
+                                select(produtos.c.id, produtos.c.custo_unitario)
+                                .where(produtos.c.id == produto_id)
+                            ).mappings().first()
+                            if real_produto:
+                                produto_row = real_produto
                         
                         # Extrair dados
                         produto_id = produto_row['id']
@@ -2771,13 +2817,40 @@ def ml_sincronizar_hoje():
                                 .limit(1)
                             ).mappings().first()
                         
+                        # 4. Criar produto automaticamente se não encontrar
                         if not produto_row:
-                            vendas_sem_produto += 1
-                            print(f"⚠️ Produto não localizado - SKU: {sku or 'vazio'} | Título: {titulo}")
-                            continue
+                            print(f"➕ Criando produto automaticamente - Título: {titulo[:80]}")
+                            result = conn.execute(
+                                insert(produtos).values(
+                                    nome=titulo,
+                                    sku=None,
+                                    custo_unitario=0,
+                                    preco_venda_sugerido=0,
+                                    estoque_inicial=0,
+                                    estoque_atual=0,
+                                    criado_automaticamente='true'
+                                )
+                            )
+                            produto_id = result.inserted_primary_key[0]
+                            produto_row = {
+                                'id': produto_id,
+                                'custo_unitario': 0
+                            }
+                        else:
+                            produto_id = produto_row['id']
+                        
+                        # Verificar se foi vinculado a outro produto
+                        if produto_row and 'vinculado_a' in produto_row and produto_row['vinculado_a']:
+                            # Se foi vinculado, usar o produto real
+                            produto_id = produto_row['vinculado_a']
+                            real_produto = conn.execute(
+                                select(produtos.c.id, produtos.c.custo_unitario)
+                                .where(produtos.c.id == produto_id)
+                            ).mappings().first()
+                            if real_produto:
+                                produto_row = real_produto
                         
                         # Extrair dados
-                        produto_id = produto_row['id']
                         custo_unitario = float(produto_row['custo_unitario'] or 0)
                         quantidade = item['quantity']
                         preco_unitario = item['unit_price']
@@ -2999,6 +3072,109 @@ def ml_toggle_sync_auto():
         flash("⏸️ Sincronização automática desativada.", "info")
     
     return redirect(url_for("ml_sincronizar_view"))
+
+
+@app.route("/produtos_automaticos", methods=["GET"])
+@login_required
+def produtos_automaticos():
+    """Lista produtos criados automaticamente pelo ML"""
+    with engine.begin() as conn:
+        # Produtos criados automaticamente que ainda não foram vinculados
+        produtos_list = conn.execute(
+            select(
+                produtos.c.id,
+                produtos.c.nome,
+                produtos.c.estoque_atual,
+                func.count(vendas.c.id).label('total_vendas')
+            )
+            .outerjoin(vendas, vendas.c.produto_id == produtos.c.id)
+            .where(produtos.c.criado_automaticamente == 'true')
+            .where(produtos.c.vinculado_a == None)
+            .group_by(produtos.c.id)
+            .order_by(func.count(vendas.c.id).desc())
+        ).mappings().all()
+        
+        # Produtos existentes para opção de vinculação
+        produtos_existentes = conn.execute(
+            select(produtos.c.id, produtos.c.nome, produtos.c.estoque_atual)
+            .where(produtos.c.criado_automaticamente == 'false')
+            .order_by(produtos.c.nome)
+        ).mappings().all()
+    
+    return render_template(
+        "produtos_automaticos.html",
+        produtos_automaticos=produtos_list,
+        produtos_existentes=produtos_existentes
+    )
+
+
+@app.route("/vincular_produto/<int:produto_automatico_id>/<int:produto_real_id>", methods=["POST"])
+@login_required
+def vincular_produto(produto_automatico_id, produto_real_id):
+    """Vincula um produto criado automaticamente a um produto existente"""
+    try:
+        with engine.begin() as conn:
+            # Verificar se ambos os produtos existem
+            auto_prod = conn.execute(
+                select(produtos.c.id)
+                .where(produtos.c.id == produto_automatico_id)
+                .where(produtos.c.criado_automaticamente == 'true')
+            ).first()
+            
+            real_prod = conn.execute(
+                select(produtos.c.id)
+                .where(produtos.c.id == produto_real_id)
+            ).first()
+            
+            if not auto_prod or not real_prod:
+                flash("❌ Produto não encontrado", "danger")
+                return redirect(url_for("produtos_automaticos"))
+            
+            # Vincula o produto automático ao real
+            conn.execute(
+                update(produtos)
+                .where(produtos.c.id == produto_automatico_id)
+                .values(vinculado_a=produto_real_id)
+            )
+            
+            # Opcional: deletar o produto automático (deixa comentado para manter histórico)
+            # conn.execute(delete(produtos).where(produtos.c.id == produto_automatico_id))
+            
+            flash(f"✅ Produto vinculado com sucesso!", "success")
+    except Exception as e:
+        flash(f"❌ Erro ao vincular: {e}", "danger")
+    
+    return redirect(url_for("produtos_automaticos"))
+
+
+@app.route("/deletar_produto_automatico/<int:produto_id>", methods=["POST"])
+@login_required
+def deletar_produto_automatico(produto_id):
+    """Deleta um produto criado automaticamente"""
+    try:
+        with engine.begin() as conn:
+            # Verificar se o produto é automaticamente criado
+            prod = conn.execute(
+                select(produtos.c.id, produtos.c.nome)
+                .where(produtos.c.id == produto_id)
+                .where(produtos.c.criado_automaticamente == 'true')
+            ).mappings().first()
+            
+            if not prod:
+                flash("❌ Produto não encontrado ou não é automático", "danger")
+                return redirect(url_for("produtos_automaticos"))
+            
+            # Deletar vendas relacionadas
+            conn.execute(delete(vendas).where(vendas.c.produto_id == produto_id))
+            
+            # Deletar o produto
+            conn.execute(delete(produtos).where(produtos.c.id == produto_id))
+            
+            flash(f"✅ Produto '{prod['nome']}' deletado com sucesso!", "success")
+    except Exception as e:
+        flash(f"❌ Erro ao deletar: {e}", "danger")
+    
+    return redirect(url_for("produtos_automaticos"))
 
 
 # Iniciar scheduler
