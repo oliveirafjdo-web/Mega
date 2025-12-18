@@ -378,21 +378,26 @@ new Chart(document.getElementById("chartComparativo"), {
 // ===========================
 const canvasPizza = document.getElementById("chartPizzaEstados");
 if (canvasPizza && pizzaEstadosLabels.length > 0) {
-    new Chart(canvasPizza, {
-        type: "doughnut",
-        data: {
-            labels: pizzaEstadosLabels,
-            datasets: [{
-                data: pizzaEstadosValores
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { display: true, position: "bottom" },
-                datalabels: {
-                    display: true,
-                    color: "#fff",
+    // Garantir que os labels sejam strings válidas (siglas de UF)
+    const validLabels = pizzaEstadosLabels.map(label => (label || "").toString().trim()).filter(l => l && l !== "N/I");
+    const validValues = validLabels.length > 0 ? pizzaEstadosValores.slice(0, validLabels.length) : [];
+    
+    if (validLabels.length > 0) {
+        new Chart(canvasPizza, {
+            type: "doughnut",
+            data: {
+                labels: validLabels,
+                datasets: [{
+                    data: validValues
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: true, position: "bottom" },
+                    datalabels: {
+                        display: true,
+                        color: "#fff",
                     font: { weight: "bold", size: 12 },
                     formatter: (value, ctx) => {
                         const total = (ctx.chart.data.datasets[0].data || []).reduce((a, b) => a + Number(b || 0), 0);
@@ -407,6 +412,7 @@ if (canvasPizza && pizzaEstadosLabels.length > 0) {
             }
         }
     });
+    }
 }
 
 // ===========================

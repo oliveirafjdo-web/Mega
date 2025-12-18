@@ -1194,8 +1194,9 @@ def lista_vendas():
             estados_rows = conn.execute(query_estados).mappings().all()
 
             # ✅ Pizza por Receita (padrão)
-            pizza_estados_labels = [r["uf"] for r in estados_rows]
-            pizza_estados_valores = [float(r["total_receita"] or 0) for r in estados_rows]
+            # Filtrar valores vazios e NULL
+            pizza_estados_labels = [r["uf"] for r in estados_rows if r["uf"] and r["uf"] != "N/I" and r["uf"].strip()]
+            pizza_estados_valores = [float(r["total_receita"] or 0) for r in estados_rows if r["uf"] and r["uf"] != "N/I" and r["uf"].strip()]
 
             # Se quiser por quantidade, use isto no lugar:
             # pizza_estados_valores = [int(r["qtd_vendas"] or 0) for r in estados_rows]
