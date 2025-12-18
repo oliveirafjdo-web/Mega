@@ -2455,7 +2455,7 @@ def ml_callback():
 def ml_sincronizar_view():
     """Página para sincronizar vendas do ML"""
     config = get_ml_config()
-    return render_template("ml_sincronizar.html", config=config)
+    return render_template("ml_sincronizar.html", config=config, now=datetime.now(), timedelta=timedelta)
 
 
 @app.route("/ml_sincronizar", methods=["POST"])
