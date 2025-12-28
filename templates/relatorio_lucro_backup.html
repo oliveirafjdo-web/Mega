@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Relatório de Lucro - Mega ERP{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <!-- Cabeçalho + filtro -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="h3 mb-1">Relatório de Lucro</h1>
+            <p class="text-muted mb-0">
+                Visão consolidada de receita, custos, comissões, impostos, despesas e lucro líquido por produto.
+            </p>
+            <small class="text-muted">
+                Imposto: {{ '%.2f'|format(imposto_percent or 0) }}% |
+                Despesas: {{ '%.2f'|format(despesas_percent or 0) }}%
+            </small>
+        </div>
+
+        <div>
+            <a href="{{ url_for('relatorio_lucro_exportar',
+                                data_inicio=data_inicio,
+                                data_fim=data_fim) }}"
+               class="btn btn-success">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Exportar Planilha
+            </a>
+        </div>
+    </div>
+
+    <!-- Filtro de período -->
+    <form class="row g-3 mb-4" method="GET">
+        <div class="col-md-3">
+            <label class="form-label">Data início</label>
+            <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Data fim</label>
+            <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <button class="btn btn-primary w-100">Filtrar</button>
+        </div>
+    </form>
+
+    <!-- Tabela principal -->
+    <div class="card shadow-sm border-0">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0 table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-end">Qtd</th>
+                        <th class="text-end">Receita (R$)</th>
+                        <th class="text-end">Custo (R$)</th>
+                        <th class="text-end">Comissão ML (R$)</th>
+                        <th class="text-end">Imposto (R$)</th>
+                        <th class="text-end">Despesas (R$)</th>
+                        <th class="text-end">Lucro líquido (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.produto }}</td>
+                            <td class="text-end">{{ linha.qtd|int }}</td>
+                            <td class="text-end">R$ {{ '%.2f'|format(linha.receita or 0) }}</td>
+                            <td class="text-end">R$ {{ '%.2f'|format(linha.custo or 0) }}</td>
+                            <td class="text-end">R$ {{ '%.2f'|format(linha.comissao or 0) }}</td>
+                            <td class="text-end">R$ {{ '%.2f'|format(linha.imposto or 0) }}</td>
+                            <td class="text-end">R$ {{ '%.2f'|format(linha.despesas or 0) }}</td>
+                            <td class="text-end fw-semibold">
+                                R$ {{ '%.2f'|format(linha.margem_liquida or 0) }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-light">
+                    <tr class="fw-bold">
+                        <td>Totais</td>
+                        <td class="text-end">{{ totais.qtd|int }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.receita or 0) }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.custo or 0) }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.comissao or 0) }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.imposto or 0) }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.despesas or 0) }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.margem_liquida or 0) }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

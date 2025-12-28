@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Vendas - Metrify{% endblock %}
+{% block title %}Vendas - Mega ERP{% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4">
@@ -10,51 +10,116 @@
     {# Botão de ajuste de estoque removido desta tela #}
 
     <!-- =========================== -->
-    <!-- FILTROS DE DATA -->
+    <!-- FILTROS (STICKY) + BUSCA + AÇÕES -->
     <!-- =========================== -->
-    <form class="row g-3 mb-4" method="GET">
-        <div class="col-md-3">
-            <label class="form-label">Data início</label>
-            <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
+    <div class="card shadow-sm mb-4 sticky-top" style="top: 1rem; z-index: 10;">
+        <div class="card-body">
+            <form class="row g-3 align-items-end" method="GET" id="formPeriodo">
+                <!-- Botões rápidos de período -->
+                <div class="col-12">
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(0)">
+                            <i class="bi bi-calendar-day me-1"></i> Hoje
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(7)">
+                            <i class="bi bi-calendar-week me-1"></i> 7 dias
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(30)">
+                            <i class="bi bi-calendar-month me-1"></i> 30 dias
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setCurrentMonth()">
+                            <i class="bi bi-calendar-check me-1"></i> Este mês
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setLastMonth()">
+                            <i class="bi bi-calendar me-1"></i> Mês anterior
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Data início</label>
+                    <input type="date" name="data_inicio" id="data_inicio" class="form-control" value="{{ data_inicio }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Data fim</label>
+                    <input type="date" name="data_fim" id="data_fim" class="form-control" value="{{ data_fim }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Buscar produto / Nº ML</label>
+                    <div class="input-group">
+                        <span class="input-group-text">🔍</span>
+                        <input id="buscaVendas" type="text" class="form-control" placeholder="Digite para filtrar..." onkeyup="filtrarTabelaVendas()">
+                    </div>
+                </div>
+                <div class="col-md-3 d-flex gap-2 justify-content-end">
+                    <a href="{{ url_for('exportar_consolidado') }}" class="btn btn-outline-secondary flex-grow-1">⬇ Exportar XLSX</a>
+                    <button class="btn btn-primary flex-grow-1" type="submit">Aplicar</button>
+                </div>
+            </form>
+
+            <!-- Chips de filtro rápido -->
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <div class="text-muted small">Origem:</div>
+                <button class="btn btn-sm btn-outline-dark" data-origem="" onclick="setOrigemFiltro(this)">Todas</button>
+                <button class="btn btn-sm btn-outline-primary" data-origem="Mercado Livre" onclick="setOrigemFiltro(this)">Mercado Livre</button>
+                <button class="btn btn-sm btn-outline-success" data-origem="Manual" onclick="setOrigemFiltro(this)">Manual</button>
+
+                <div class="text-muted small ms-3">Status:</div>
+                <button class="btn btn-sm btn-outline-dark" data-status="" onclick="setStatusFiltro(this)">Todos</button>
+                <button class="btn btn-sm btn-outline-success" data-status="ok" onclick="setStatusFiltro(this)">Ativas</button>
+                <button class="btn btn-sm btn-outline-danger" data-status="cancelada" onclick="setStatusFiltro(this)">Canceladas</button>
+            </div>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">Data fim</label>
-            <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
-        </div>
-        <div class="col-md-3 d-flex align-items-end">
-            <button class="btn btn-primary w-100">Filtrar</button>
-        </div>
-    </form>
+    </div>
 
     <!-- =========================== -->
     <!-- TOTAIS NO TOPO -->
     <!-- =========================== -->
-    <div class="row mb-4">
+    <div class="row mb-4 g-3">
         <div class="col-md-3">
-            <div class="card text-center p-3">
-                <h5>Total de Vendas</h5>
-                <h3>{{ totais.qtd }}</h3>
+            <div class="card shadow-sm h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Total de Vendas</div>
+                    <div class="d-flex justify-content-center align-items-center gap-2">
+                        <span class="fs-4">🧾</span>
+                        <h3 class="mb-0">{{ totais.qtd }}</h3>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="col-md-3">
-            <div class="card text-center p-3">
-                <h5>Faturamento Total</h5>
-                <h3>R$ {{ "%.2f"|format(totais.receita or 0) }}</h3>
+            <div class="card shadow-sm h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Faturamento Total</div>
+                    <div class="d-flex justify-content-center align-items-center gap-2">
+                        <span class="fs-4 text-primary">💵</span>
+                        <h3 class="mb-0">R$ {{ "%.2f"|format(totais.receita or 0) }}</h3>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="col-md-3">
-            <div class="card text-center p-3">
-                <h5>Custo Total</h5>
-                <h3>R$ {{ "%.2f"|format(totais.custo or 0) }}</h3>
+            <div class="card shadow-sm h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Custo Total</div>
+                    <div class="d-flex justify-content-center align-items-center gap-2">
+                        <span class="fs-4 text-secondary">📦</span>
+                        <h3 class="mb-0">R$ {{ "%.2f"|format(totais.custo or 0) }}</h3>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="col-md-3">
-            <div class="card text-center p-3">
-                <h5>Lucro Líquido</h5>
-                <h3>R$ {{ "%.2f"|format(totais.lucro_liquido or 0) }}</h3>
+            <div class="card shadow-sm h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Lucro Líquido</div>
+                    <div class="d-flex justify-content-center align-items-center gap-2">
+                        <span class="fs-4 text-success">📈</span>
+                        <h3 class="mb-0">R$ {{ "%.2f"|format(totais.lucro_liquido or 0) }}</h3>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -98,14 +163,7 @@
 </div>
 </div>
 </div>
-        <div class="col-md-6">
-            <div class="card shadow-sm">
-                <div class="card-header">Comparativo: Mês atual x Mês anterior</div>
-                <div class="card-body">
-                    <canvas id="chartComparativo" style="height:260px;"></canvas>
-                </div>
-            </div>
-        </div>
+
         <!-- =========================== -->
         <!-- NOVO: PIZZA POR ESTADO (UF) -->
         <!-- =========================== -->
@@ -129,17 +187,59 @@
         </div>
 
         <!-- =========================== -->
-        <!-- NOVO: PIZZA POR PRODUTO (SKU) -->
+        <!-- PRODUTOS MAIS VENDIDOS -->
         <!-- =========================== -->
         <div class="col-md-6">
             <div class="card shadow-sm">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span>Vendas por Produto (Top 10 SKU)</span>
+                    <span>🔥 Top 10 Mais Vendidos (Quantidade)</span>
                     <small class="text-muted">Baseado no período filtrado</small>
                 </div>
                 <div class="card-body">
-                    {% if pizza_produtos_labels and pizza_produtos_valores %}
-                        <canvas id="chartPizzaProdutos" style="height:260px;"></canvas>
+                    {% if pizza_mais_vendidos_labels and pizza_mais_vendidos_valores %}
+                        <canvas id="chartMaisVendidos" style="height:260px;"></canvas>
+                    {% else %}
+                        <div class="text-muted">
+                            Nenhum dado de produto encontrado no período selecionado.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================== -->
+        <!-- PRODUTOS MAIS LUCRATIVOS -->
+        <!-- =========================== -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>💰 Top 10 Mais Lucrativos</span>
+                    <small class="text-muted">Baseado no período filtrado</small>
+                </div>
+                <div class="card-body">
+                    {% if pizza_mais_lucrativos_labels and pizza_mais_lucrativos_valores %}
+                        <canvas id="chartMaisLucrativos" style="height:260px;"></canvas>
+                    {% else %}
+                        <div class="text-muted">
+                            Nenhum dado de produto encontrado no período selecionado.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================== -->
+        <!-- PRODUTOS MENOS LUCRATIVOS -->
+        <!-- =========================== -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>⚠️ Top 10 Menos Lucrativos</span>
+                    <small class="text-muted">Baseado no período filtrado</small>
+                </div>
+                <div class="card-body">
+                    {% if pizza_menos_lucrativos_labels and pizza_menos_lucrativos_valores %}
+                        <canvas id="chartMenosLucrativos" style="height:260px;"></canvas>
                     {% else %}
                         <div class="text-muted">
                             Nenhum dado de produto encontrado no período selecionado.
@@ -184,34 +284,43 @@
     <!-- LISTA DE VENDAS -->
     <!-- =========================== -->
     <h3 class="mt-5 mb-3">Lista de vendas</h3>
-    <table class="table table-bordered table-hover">
-        <thead>
+    <table class="table table-striped table-hover align-middle" id="tabelaVendas">
+        <thead class="table-light">
             <tr>
                 <th>Data</th>
                 <th>Produto</th>
-                <th>Qtd</th>
-                <th>Receita</th>
-                <th>Custo</th>
-                <th>Lucro</th>
+                <th class="text-end">Qtd</th>
+                <th class="text-end">Receita</th>
+                <th class="text-end">Custo</th>
+                <th class="text-end">Lucro</th>
                 <th>Origem</th>
                 <th>Nº ML</th>
             </tr>
         </thead>
         <tbody>
             {% for v in vendas %}
-            <tr {% if v.receita_total <= 0 %}class="table-danger" style="opacity: 0.7;"{% endif %}>
+            {% set cancelada = v.receita_total <= 0 %}
+            <tr data-origem="{{ v.origem or '' }}" data-status="{{ 'cancelada' if cancelada else 'ok' }}">
                 <td>{{ v.data_venda[:10] }}</td>
                 <td>
                     {{ v.nome }}
-                    {% if v.receita_total <= 0 %}
-                        <span class="badge bg-danger ms-2">CANCELADA</span>
+                    {% if cancelada %}
+                        <span class="badge bg-danger ms-2">⛔ Cancelada</span>
                     {% endif %}
                 </td>
-                <td>{{ v.quantidade }}</td>
-                <td>R$ {{ "%.2f"|format(v.receita_total) }}</td>
-                <td>R$ {{ "%.2f"|format(v.custo_total) }}</td>
-                <td>R$ {{ "%.2f"|format(v.margem_contribuicao) }}</td>
-                <td>{{ v.origem }}</td>
+                <td class="text-end">{{ v.quantidade }}</td>
+                <td class="text-end">R$ {{ "%.2f"|format(v.receita_total) }}</td>
+                <td class="text-end">R$ {{ "%.2f"|format(v.custo_total) }}</td>
+                <td class="text-end">R$ {{ "%.2f"|format(v.margem_contribuicao) }}</td>
+                <td>
+                    {% if v.origem == 'Mercado Livre' %}
+                        <span class="badge bg-primary">🛒 Mercado Livre</span>
+                    {% elif v.origem %}
+                        <span class="badge bg-success">📋 {{ v.origem }}</span>
+                    {% else %}
+                        <span class="badge bg-secondary">—</span>
+                    {% endif %}
+                </td>
                 <td>{{ v.numero_venda_ml }}</td>
             </tr>
             {% endfor %}
@@ -247,17 +356,22 @@ const dadosFaturamento = {{ grafico_faturamento|tojson }};
 const dadosQuantidade = {{ grafico_quantidade|tojson }};
 const dadosLucro = {{ grafico_lucro|tojson }};
 const dadosReceitaLiquida = {{ grafico_receita_liquida|tojson }};
-const labelsCmp = {{ grafico_cmp_labels|tojson }};
-const dadosAtual = {{ grafico_cmp_atual|tojson }};
-const dadosAnterior = {{ grafico_cmp_anterior|tojson }};
 
 // NOVO: Pizza por estado
 const pizzaEstadosLabels = {{ pizza_estados_labels|default([])|tojson }};
 const pizzaEstadosValores = {{ pizza_estados_valores|default([])|tojson }};
 
-// NOVO: Pizza por produto (SKU)
-const pizzaProdutosLabels = {{ pizza_produtos_labels|default([])|tojson }};
-const pizzaProdutosValores = {{ pizza_produtos_valores|default([])|tojson }};
+// NOVO: Produtos mais vendidos
+const pizzaMaisVendidosLabels = {{ pizza_mais_vendidos_labels|default([])|tojson }};
+const pizzaMaisVendidosValores = {{ pizza_mais_vendidos_valores|default([])|tojson }};
+
+// NOVO: Produtos mais lucrativos
+const pizzaMaisLucrativosLabels = {{ pizza_mais_lucrativos_labels|default([])|tojson }};
+const pizzaMaisLucrativosValores = {{ pizza_mais_lucrativos_valores|default([])|tojson }};
+
+// NOVO: Produtos menos lucrativos
+const pizzaMenosLucrativosLabels = {{ pizza_menos_lucrativos_labels|default([])|tojson }};
+const pizzaMenosLucrativosValores = {{ pizza_menos_lucrativos_valores|default([])|tojson }};
 
 const baseConfig = {
     plugins: {
@@ -348,36 +462,6 @@ new Chart(document.getElementById("chartReceitaLiquida"), {
     options: baseConfig
 });
 
-new Chart(document.getElementById("chartComparativo"), {
-    type: "line",
-    data: {
-        labels: labelsCmp,
-        datasets: [
-            {
-                label: "Mês atual",
-                data: dadosAtual,
-                borderColor: "#3498db",
-                backgroundColor: "rgba(52,152,219,0.2)",
-                fill: true,
-                tension: 0.3,
-                pointRadius: 3,
-                borderWidth: 2
-            },
-            {
-                label: "Mês anterior",
-                data: dadosAnterior,
-                borderColor: "#ff0000",
-                backgroundColor: "rgba(255,0,0,0.20)",
-                fill: true,
-                tension: 0.3,
-                pointRadius: 3,
-                borderWidth: 3
-            }
-        ]
-    },
-    options: baseConfig
-});
-
 // ===========================
 // NOVO: DOUGHNUT por Estado (UF)
 // ===========================
@@ -421,16 +505,20 @@ if (canvasPizza && pizzaEstadosLabels.length > 0) {
 }
 
 // ===========================
-// NOVO: DOUGHNUT por Produto (SKU)
+// NOVO: DOUGHNUT Top 10 Mais Vendidos
 // ===========================
-const canvasPizzaProdutos = document.getElementById("chartPizzaProdutos");
-if (canvasPizzaProdutos && pizzaProdutosLabels.length > 0) {
-    new Chart(canvasPizzaProdutos, {
+const canvasMaisVendidos = document.getElementById("chartMaisVendidos");
+if (canvasMaisVendidos && pizzaMaisVendidosLabels.length > 0) {
+    new Chart(canvasMaisVendidos, {
         type: "doughnut",
         data: {
-            labels: pizzaProdutosLabels,
+            labels: pizzaMaisVendidosLabels,
             datasets: [{
-                data: pizzaProdutosValores
+                data: pizzaMaisVendidosValores,
+                backgroundColor: [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+                    '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'
+                ]
             }]
         },
         options: {
@@ -440,7 +528,7 @@ if (canvasPizzaProdutos && pizzaProdutosLabels.length > 0) {
                 datalabels: {
                     display: true,
                     color: "#fff",
-                    font: { weight: "bold", size: 12 },
+                    font: { weight: "bold", size: 11 },
                     formatter: (value, ctx) => {
                         const total = (ctx.chart.data.datasets[0].data || []).reduce((a, b) => a + Number(b || 0), 0);
                         if (!total || !value) return "";
@@ -453,6 +541,178 @@ if (canvasPizzaProdutos && pizzaProdutosLabels.length > 0) {
             }
         }
     });
+}
+
+// ===========================
+// NOVO: DOUGHNUT Top 10 Mais Lucrativos
+// ===========================
+const canvasMaisLucrativos = document.getElementById("chartMaisLucrativos");
+if (canvasMaisLucrativos && pizzaMaisLucrativosLabels.length > 0) {
+    new Chart(canvasMaisLucrativos, {
+        type: "doughnut",
+        data: {
+            labels: pizzaMaisLucrativosLabels,
+            datasets: [{
+                data: pizzaMaisLucrativosValores,
+                backgroundColor: [
+                    '#4BC0C0', '#36A2EB', '#FFCE56', '#FF6384', '#9966FF',
+                    '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#36A2EB'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom" },
+                datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold", size: 11 },
+                    formatter: (value, ctx) => {
+                        const total = (ctx.chart.data.datasets[0].data || []).reduce((a, b) => a + Number(b || 0), 0);
+                        if (!total || !value) return "";
+                        const pct = (Number(value) / total) * 100;
+                        if (pct < 3) return "";
+                        const label = ctx.chart.data.labels[ctx.dataIndex] || "";
+                        return label + "\n" + pct.toFixed(1).replace(".", ",") + "%";
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ===========================
+// NOVO: DOUGHNUT Top 10 Menos Lucrativos
+// ===========================
+const canvasMenosLucrativos = document.getElementById("chartMenosLucrativos");
+if (canvasMenosLucrativos && pizzaMenosLucrativosLabels.length > 0) {
+    new Chart(canvasMenosLucrativos, {
+        type: "doughnut",
+        data: {
+            labels: pizzaMenosLucrativosLabels,
+            datasets: [{
+                data: pizzaMenosLucrativosValores,
+                backgroundColor: [
+                    '#FF6384', '#E7E9ED', '#FF9F40', '#FFCE56', '#C9CBCF',
+                    '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF', '#FF9F40'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom" },
+                datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold", size: 11 },
+                    formatter: (value, ctx) => {
+                        const total = (ctx.chart.data.datasets[0].data || []).reduce((a, b) => a + Number(b || 0), 0);
+                        if (!total || !value) return "";
+                        const pct = (Number(value) / total) * 100;
+                        if (pct < 3) return "";
+                        const label = ctx.chart.data.labels[ctx.dataIndex] || "";
+                        return label + "\n" + pct.toFixed(1).replace(".", ",") + "%";
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ===========================
+// FILTROS CLIENT-SIDE (busca, origem, status)
+// ===========================
+let filtroOrigem = "";
+let filtroStatus = "";
+
+function setOrigemFiltro(btn) {
+    filtroOrigem = btn.dataset.origem || "";
+    marcarAtivo(btn, "data-origem");
+    filtrarTabelaVendas();
+}
+
+function setStatusFiltro(btn) {
+    filtroStatus = btn.dataset.status || "";
+    marcarAtivo(btn, "data-status");
+    filtrarTabelaVendas();
+}
+
+function marcarAtivo(btn, dataAttr) {
+    document.querySelectorAll(`[${dataAttr}]`).forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+}
+
+function filtrarTabelaVendas() {
+    const busca = (document.getElementById("buscaVendas")?.value || "").toLowerCase();
+    const linhas = document.querySelectorAll("#tabelaVendas tbody tr");
+
+    linhas.forEach(l => {
+        const origem = (l.dataset.origem || "").toLowerCase();
+        const status = (l.dataset.status || "").toLowerCase();
+        const texto = l.textContent.toLowerCase();
+
+        const matchBusca = !busca || texto.includes(busca);
+        const matchOrigem = !filtroOrigem || origem === filtroOrigem.toLowerCase();
+        const matchStatus = !filtroStatus || status === filtroStatus.toLowerCase();
+
+        l.style.display = (matchBusca && matchOrigem && matchStatus) ? "" : "none";
+    });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    // Marcar defaults
+    const origemDefault = document.querySelector('[data-origem=""]');
+    if (origemDefault) origemDefault.classList.add("active");
+    const statusDefault = document.querySelector('[data-status=""]');
+    if (statusDefault) statusDefault.classList.add("active");
+});
+
+// Funções de período rápido
+function setQuickPeriod(days) {
+    const hoje = new Date();
+    const dataFim = hoje.toISOString().split('T')[0];
+    
+    let dataInicio;
+    if (days === 0) {
+        dataInicio = dataFim;
+    } else {
+        const inicio = new Date();
+        inicio.setDate(inicio.getDate() - days);
+        dataInicio = inicio.toISOString().split('T')[0];
+    }
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+
+function setCurrentMonth() {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    
+    const dataInicio = `${ano}-${mes}-01`;
+    const dataFim = hoje.toISOString().split('T')[0];
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+
+function setLastMonth() {
+    const hoje = new Date();
+    const primeiroDiaEstemês = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const ultimoDiaMesAnterior = new Date(primeiroDiaEstemês.getTime() - 1);
+    const primeiroDiaMesAnterior = new Date(ultimoDiaMesAnterior.getFullYear(), ultimoDiaMesAnterior.getMonth(), 1);
+    
+    const dataInicio = primeiroDiaMesAnterior.toISOString().split('T')[0];
+    const dataFim = ultimoDiaMesAnterior.toISOString().split('T')[0];
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
 }
 </script>
 

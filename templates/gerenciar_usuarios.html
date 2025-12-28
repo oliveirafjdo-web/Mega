@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="bi bi-people"></i> Gerenciar Usuários</h1>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoUsuarioModal">
+                    <i class="bi bi-plus-circle me-1"></i> Novo Usuário
+                </button>
+            </div>
+
+            {% if usuarios %}
+            <div class="card shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Usuário</th>
+                                <th>Papel</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for usuario in usuarios %}
+                            <tr>
+                                <td><strong>{{ usuario[1] }}</strong></td>
+                                <td>
+                                    <span class="badge bg-{% if usuario[3]|default('vendedor') == 'admin' %}danger{% elif usuario[3]|default('vendedor') == 'gerente' %}warning{% else %}info{% endif %}">
+                                        {{ usuario[3]|default('vendedor')|upper }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if usuario[4]|default(1) %}
+                                    <span class="badge bg-success">Ativo</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Inativo</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <form method="POST" action="/admin/usuario/{{ usuario[0] }}/toggle" style="display:inline;">
+                                        <button type="submit" class="btn btn-sm btn-{% if usuario[4]|default(1) %}danger{% else %}success{% endif %}">
+                                            <i class="bi bi-{% if usuario[4]|default(1) %}lock{% else %}unlock{% endif %}"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-info"><i class="bi bi-info-circle"></i> Nenhum usuário cadastrado.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Modal Novo Usuário -->
+<div class="modal fade" id="novoUsuarioModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Novo Usuário</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="/admin/usuario/novo">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Usuário</label>
+                        <input type="text" name="username" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Senha</label>
+                        <input type="password" name="password" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Papel</label>
+                        <select name="papel" class="form-select">
+                            <option value="vendedor">Vendedor</option>
+                            <option value="gerente">Gerente</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Criar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

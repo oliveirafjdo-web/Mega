@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Importar Mercado Pago Full - Mega ERP{% endblock %}
+
+{% block page_icon %}<i class="bi bi-cloud-upload text-primary"></i>{% endblock %}
+{% block page_title %}Importar Mercado Pago Full{% endblock %}
+
+{% block content %}
+<div class="card-glass">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-file-earmark-excel text-success"></i>
+      Carregar Planilha do Mercado Pago
+    </div>
+  </div>
+  
+  <form method="POST" enctype="multipart/form-data" id="formUpload">
+    <div class="mb-4">
+      <label class="form-label">Selecione o arquivo Excel:</label>
+      <div class="input-group">
+        <input type="file" class="form-control" name="arquivo" accept=".xlsx,.xls" required>
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-upload"></i> Importar
+        </button>
+      </div>
+      <small class="text-muted mt-2 d-block">
+        ✓ Formato: Excel (.xlsx ou .xls)<br>
+        ✓ Colunas obrigatórias: RELEASE_DATE, TRANSACTION_TYPE, REFERENCE_ID, TRANSACTION_NET_AMOUNT, PARTIAL_BALANCE
+      </small>
+    </div>
+  </form>
+</div>
+
+<div class="card-glass mt-4">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-info-circle text-info"></i>
+      Instruções de Importação
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <h6 class="text-heading mb-3">📋 Colunas Esperadas:</h6>
+    <table class="table table-sm table-borderless">
+      <thead>
+        <tr class="bg-light">
+          <th style="width: 30%;">Coluna</th>
+          <th style="width: 70%;">Descrição</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>RELEASE_DATE</strong></td>
+          <td>Data de liberação do dinheiro (ex: 2024-12-19)</td>
+        </tr>
+        <tr>
+          <td><strong>TRANSACTION_TYPE</strong></td>
+          <td>Tipo de transação (ex: Payment, Refund, Dispute, Withdrawal)</td>
+        </tr>
+        <tr>
+          <td><strong>REFERENCE_ID</strong></td>
+          <td>ID único da transação (ex: 123456789)</td>
+        </tr>
+        <tr>
+          <td><strong>TRANSACTION_NET_AMOUNT</strong></td>
+          <td>Valor líquido da transação (ex: 99.50)</td>
+        </tr>
+        <tr>
+          <td><strong>PARTIAL_BALANCE</strong></td>
+          <td>Saldo parcial após transação (ex: 1500.00)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr class="my-4">
+
+  <div>
+    <h6 class="text-heading mb-3">✨ O sistema irá:</h6>
+    <ul class="list-unstyled">
+      <li class="mb-2">
+        <i class="bi bi-check-circle text-success"></i>
+        <strong>Importar</strong> todos os registros da planilha
+      </li>
+      <li class="mb-2">
+        <i class="bi bi-check-circle text-success"></i>
+        <strong>Calcular totais</strong> por tipo de transação (TRANSACTION_TYPE)
+      </li>
+      <li class="mb-2">
+        <i class="bi bi-check-circle text-success"></i>
+        <strong>Evitar duplicatas</strong> usando REFERENCE_ID como chave única
+      </li>
+      <li class="mb-2">
+        <i class="bi bi-check-circle text-success"></i>
+        <strong>Gerar relatório</strong> com resumo financeiro
+      </li>
+    </ul>
+  </div>
+</div>
+
+{% endblock %}

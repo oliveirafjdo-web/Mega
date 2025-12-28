@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1><i class="bi bi-bell"></i> Alertas do Sistema</h1>
+    
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-danger text-white">
+                    <h5><i class="bi bi-exclamation-triangle"></i> Estoque Baixo (< 5 unidades)</h5>
+                </div>
+                <div class="card-body">
+                    {% if estoque_baixo %}
+                    <ul class="list-group">
+                        {% for produto in estoque_baixo %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ produto[0] }}</strong>
+                                <br>
+                                <small class="text-muted">SKU: {{ produto[1] }}</small>
+                            </div>
+                            <span class="badge bg-warning text-dark">{{ produto[2] }} un</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted"><i class="bi bi-check-circle-fill text-success me-2"></i>Nenhum produto com estoque baixo</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-warning">
+                    <h5><i class="bi bi-question-circle"></i> Vendas sem Produto</h5>
+                </div>
+                <div class="card-body">
+                    {% if vendas_sem_produto > 0 %}
+                    <p><strong>{{ vendas_sem_produto }}</strong> vendas sem produto vinculado</p>
+                    <a href="/criar_produtos_de_vendas" class="btn btn-sm btn-primary">
+                        <i class="bi bi-arrow-repeat me-1"></i>Sincronizar Agora
+                    </a>
+                    {% else %}
+                    <p class="text-muted"><i class="bi bi-check-circle-fill text-success me-2"></i>Todas as vendas têm produtos vinculados</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5><i class="bi bi-graph-down"></i> Produtos não Vendidos (30 dias)</h5>
+                </div>
+                <div class="card-body">
+                    {% if produtos_parados %}
+                    <ul class="list-group">
+                        {% for produto in produtos_parados %}
+                        <li class="list-group-item">
+                            <strong>{{ produto[0] }}</strong>
+                            <br>
+                            <small class="text-muted">Estoque: {{ produto[1] }} un</small>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted"><i class="bi bi-check-circle-fill text-success me-2"></i>Todos os produtos foram vendidos</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5><i class="bi bi-graph-up"></i> Top 5 Produtos</h5>
+                </div>
+                <div class="card-body">
+                    <ol class="list-group list-group-numbered">
+                        {% for produto in top_produtos %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            {{ produto[0] }}
+                            <span class="badge bg-primary rounded-pill">{{ produto[1] }}</span>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

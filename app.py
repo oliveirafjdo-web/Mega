@@ -1,4 +1,8 @@
+
 import os
+
+import json
+import zipfile
 from datetime import datetime, date, timedelta
 from io import BytesIO
 import requests
@@ -15,81 +19,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 import pandas as pd
-
-# --------------------------------------------------------------------
-# Configuração de banco: Postgres em produção, SQLite em desenvolvimento
-# --------------------------------------------------------------------
-# Detecta Postgres (Render) ou cai para SQLite local
-raw_db_url = os.environ.get("DATABASE_URL")
-
-if raw_db_url:
-    # Render costuma entregar "postgres://", mas o SQLAlchemy quer "postgresql+psycopg2://"
-    if raw_db_url.startswith("postgres://"):
-        raw_db_url = raw_db_url.replace("postgres://", "postgresql+psycopg2://", 1)
-    DATABASE_URL = raw_db_url
-else:
-    DATABASE_URL = "sqlite:///metrifiy.db"
-UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
-
-app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.secret_key = os.environ.get("SECRET_KEY", "metrifypremium-secret")
-
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# Configuração do engine com pool settings para Render (melhor tratamento de SSL/conexão)
-if raw_db_url:
-    engine: Engine = create_engine(
-        DATABASE_URL,
-        future=True,
-        pool_pre_ping=True,          # Verifica conexão antes de usar
-        pool_recycle=300,             # Recicla conexões a cada 5min (mais agressivo)
-        pool_size=3,                  # Reduzir pool (Render Free tem limites)
-        max_overflow=1,               # Até 1 conexão extra
-        pool_timeout=30,              # Timeout ao esperar conexão do pool
-        echo_pool='debug',            # Log de debug do pool (remover em produção)
-        connect_args={
-            'connect_timeout': 10,
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 5,
-            'sslmode': 'require',     # Força SSL mas não valida certificado
-            'options': '-c statement_timeout=30000'
-        }
-    )
-else:
-    engine: Engine = create_engine(DATABASE_URL, future=True)
-
-metadata = MetaData()
-
-# Inicializa Flask-Login e Bcrypt
-bcrypt = Bcrypt(app)
-login_manager = LoginManager(app)
-login_manager.login_view = "login_view"
-
-# Tabela de usuários
-usuarios = Table(
-    "usuarios",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("username", String(80), unique=True, nullable=False),
-    Column("password_hash", String(128), nullable=False),
-)
-
-# Definição das outras tabelas (produtos, vendas, etc.)
-# ...existing code...
-
-# Criar todas as tabelas no banco de dados
-metadata.create_all(engine)
-
-# Migração: adicionar colunas ML (PostgreSQL e SQLite)
 def migrate_ml_columns():
     """Adiciona colunas do Mercado Livre nas tabelas configuracoes e vendas"""
     try:
         with engine.begin() as conn:
             insp = inspect(engine)
-            
+
             # Migração para configuracoes
             cfg_cols = [c["name"] for c in insp.get_columns("configuracoes")]
             ml_config_columns = [
@@ -102,7 +37,7 @@ def migrate_ml_columns():
                 ("ml_sync_auto", "VARCHAR(10)" if raw_db_url else "TEXT DEFAULT 'false'"),
                 ("ml_ultimo_sync", "VARCHAR(50)" if raw_db_url else "TEXT"),
             ]
-            
+
             for col_name, col_type in ml_config_columns:
                 if col_name not in cfg_cols:
                     try:
@@ -111,17 +46,17 @@ def migrate_ml_columns():
                         else:
                             sql = f"ALTER TABLE configuracoes ADD COLUMN {col_name} {col_type}"
                         conn.execute(text(sql))
-                        print(f"✅ Coluna {col_name} adicionada")
+                        print(f"[OK] Coluna {col_name} adicionada")
                     except Exception as e:
                         print(f"⚠️ Erro ao adicionar {col_name}: {e}")
-            
+
             # Migração para vendas
             vendas_cols = [c["name"] for c in insp.get_columns("vendas")]
             ml_vendas_columns = [
                 ("ml_order_id", "VARCHAR(50)" if raw_db_url else "TEXT"),
                 ("ml_status", "VARCHAR(50)" if raw_db_url else "TEXT"),
             ]
-            
+
             for col_name, col_type in ml_vendas_columns:
                 if col_name not in vendas_cols:
                     try:
@@ -130,25 +65,398 @@ def migrate_ml_columns():
                         else:
                             sql = f"ALTER TABLE vendas ADD COLUMN {col_name} {col_type}"
                         conn.execute(text(sql))
-                        print(f"✅ Coluna {col_name} adicionada")
+                        print(f"[OK] Coluna {col_name} adicionada")
                     except Exception as e:
                         print(f"⚠️ Erro ao adicionar {col_name}: {e}")
-            
+
             # Criar índice único para ml_order_id (ignora se já existe)
             try:
                 if raw_db_url:
                     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id) WHERE ml_order_id IS NOT NULL"))
                 else:
                     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id)"))
-                print("✅ Índice ml_order_id criado")
+                print("[OK] Índice ml_order_id criado")
             except Exception as e:
-                print(f"⚠️ Índice ml_order_id: {e}")
-                
-        print("✅ Migração ML concluída")
+                print(f"[WARN] Índice ml_order_id: {e}")
+
+        print("[OK] Migração ML concluída")
     except Exception as e:
-        print(f"⚠️ Migração ML falhou: {e}")
+        print(f"[WARN] Migração ML falhou: {e}")
+# Inicialização do Flask, configuração e metadata
+raw_db_url = os.environ.get("DATABASE_URL")
+if raw_db_url:
+    if raw_db_url.startswith("postgres://"):
+        raw_db_url = raw_db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    DATABASE_URL = raw_db_url
+else:
+    DATABASE_URL = "sqlite:///metrifiy.db"
+UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
+
+app = Flask(__name__)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.secret_key = os.environ.get("SECRET_KEY", "metrifypremium-secret")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+metadata = MetaData()
+
+# Cria engine cedo para permitir migrações e funções dependentes
+if raw_db_url:
+    engine: Engine = create_engine(
+        DATABASE_URL,
+        future=True,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=3,
+        max_overflow=1,
+        pool_timeout=30,
+    )
+else:
+    engine: Engine = create_engine(DATABASE_URL, future=True)
+
+# Inicializa Flask-Login e Bcrypt
+bcrypt = Bcrypt(app)
+login_manager = LoginManager(app)
+login_manager.login_view = "login_view"
+
+
+# === Backup / Restore routes (canonical implementation) ===
+@app.route("/admin/backup", methods=["GET", "POST"])
+@login_required
+def admin_backup():
+    """Página de backup e restore (implementação canônica em app.py)."""
+    user = current_user
+    # calcular meses no período (inclusivo)
+    def _months_inclusive(start_str, end_str):
+        try:
+            d1 = date.fromisoformat(start_str)
+            d2 = date.fromisoformat(end_str)
+            months = (d2.year - d1.year) * 12 + (d2.month - d1.month) + 1
+            return max(1, months)
+        except Exception:
+            return 1
+
+    # obter datas de parâmetros (query ou form) ou usar intervalo padrão (início do mês até hoje)
+    data_inicio = request.args.get("data_inicio") or request.form.get("data_inicio")
+    data_fim = request.args.get("data_fim") or request.form.get("data_fim")
+    if not data_inicio:
+        data_inicio = date.today().replace(day=1).isoformat()
+    if not data_fim:
+        data_fim = date.today().isoformat()
+
+    meses = _months_inclusive(data_inicio, data_fim)
+
+    with engine.connect() as conn:
+        usuario_atual = conn.execute(
+            select(usuarios).where(usuarios.c.id == user.id)
+        ).mappings().first()
+
+        if not usuario_atual or usuario_atual.get("papel") != "admin":
+            flash("Acesso negado.", "danger")
+            return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "render_export":
+            try:
+                from export_data import export_all_data
+                zip_path = export_all_data()
+                flash("Pacote Render exportado com sucesso!", "success")
+                return send_file(zip_path, as_attachment=True, download_name=os.path.basename(zip_path))
+            except Exception as e:
+                flash(f"Erro ao exportar: {e}", "danger")
+
+        elif action == "sqlite_backup":
+            try:
+                import shutil
+                from datetime import datetime
+                os.makedirs("backups", exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_filename = f"metrifiy_backup_{timestamp}.db"
+                backup_path = os.path.join("backups", backup_filename)
+                shutil.copy2("metrifiy.db", backup_path)
+                flash(f"Backup criado: {backup_filename}", "success")
+            except Exception as e:
+                flash(f"Erro ao criar backup: {e}", "danger")
+
+        elif action == "sqlite_restore":
+            if "backup_file" not in request.files:
+                flash("Nenhum arquivo selecionado.", "danger")
+            else:
+                file = request.files["backup_file"]
+                if file.filename == "":
+                    flash("Nenhum arquivo selecionado.", "danger")
+                elif not file.filename.endswith(".db"):
+                    flash("Arquivo deve ter extensão .db", "danger")
+                else:
+                    try:
+                        import shutil
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_atual = f"metrifiy_backup_antes_restore_{timestamp}.db"
+                        os.makedirs("backups", exist_ok=True)
+                        shutil.copy2("metrifiy.db", os.path.join("backups", backup_atual))
+                        file.save("metrifiy.db")
+                        flash("Banco restaurado com sucesso! Backup anterior salvo.", "success")
+                    except Exception as e:
+                        flash(f"Erro ao restaurar: {e}", "danger")
+
+    backups = []
+    backups_dir = "backups"
+    if os.path.exists(backups_dir):
+        for filename in os.listdir(backups_dir):
+            if filename.startswith("metrifiy_backup_") and filename.endswith(".db"):
+                filepath = os.path.join(backups_dir, filename)
+                try:
+                    stat = os.stat(filepath)
+                    backups.append({
+                        "nome": filename,
+                        "tamanho": f"{stat.st_size / 1024:.1f} KB",
+                        "criado": datetime.fromtimestamp(stat.st_ctime),
+                    })
+                except Exception:
+                    continue
+
+    backups.sort(key=lambda x: x["criado"], reverse=True)
+    return render_template("admin_backup.html", backups=backups)
+
+
+@app.route("/admin/backup/<filename>/download")
+@login_required
+def admin_backup_download(filename):
+    user = current_user
+    with engine.connect() as conn:
+        usuario_atual = conn.execute(
+            select(usuarios).where(usuarios.c.id == user.id)
+        ).mappings().first()
+
+        if not usuario_atual or usuario_atual.get("papel") != "admin":
+            flash("Acesso negado.", "danger")
+            return redirect(url_for("dashboard"))
+
+    if not filename.startswith("metrifiy_backup_") or not filename.endswith(".db"):
+        flash("Arquivo inválido.", "danger")
+        return redirect(url_for("admin_backup"))
+
+    filepath = os.path.join("backups", filename)
+    if not os.path.exists(filepath):
+        flash("Arquivo não encontrado.", "danger")
+        return redirect(url_for("admin_backup"))
+
+    return send_file(filepath, as_attachment=True, download_name=filename)
+
+# === End backup routes ===
+
+
+# Tabela de usuários
+usuarios = Table(
+    "usuarios",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("username", String(80), unique=True, nullable=False),
+    Column("password_hash", String(128), nullable=False),
+)
+
+# Definição das outras tabelas (produtos, vendas, etc.)
+# ...existing code...
+def transferir_estoque_geral_para_full_flex(planilha_vendas_path, engine):
+    """
+    Lê a planilha de vendas do Mercado Livre e transfere estoque do campo geral para full/flex
+    conforme a coluna 'forma de entrega'. Deduz do estoque correspondente.
+    """
+    import pandas as pd
+    df = pd.read_excel(planilha_vendas_path)
+    # Normalizar nomes de colunas
+    df.columns = df.columns.str.strip().str.lower()
+    col_sku = None
+    col_qtd = None
+    col_forma_entrega = None
+    # Detectar colunas relevantes
+    for col in df.columns:
+        if 'sku' in col:
+            col_sku = col
+        if 'unidade' in col or 'quantidade' in col:
+            col_qtd = col
+        if 'forma de entrega' in col or 'tipo de entrega' in col:
+            col_forma_entrega = col
+    if not (col_sku and col_qtd and col_forma_entrega):
+        raise Exception('Colunas SKU, quantidade e forma de entrega são obrigatórias na planilha!')
+
+    resumo = {'full': 0, 'flex': 0, 'geral': 0, 'nao_encontrados': []}
+    with engine.begin() as conn:
+        for _, row in df.iterrows():
+            sku = str(row.get(col_sku) or '').strip()
+            qtd = int(row.get(col_qtd) or 0)
+            forma = str(row.get(col_forma_entrega) or '').strip().lower()
+            if not sku or qtd <= 0:
+                continue
+            # Buscar produto
+            produto = conn.execute(select(produtos).where(produtos.c.sku == sku)).mappings().first()
+            if not produto:
+                resumo['nao_encontrados'].append(sku)
+                continue
+            # Deduzir do estoque correto
+            if 'full' in forma:
+                novo_full = (produto.get('estoque_full') or 0) + qtd
+                novo_geral = max((produto.get('estoque_atual') or 0) - qtd, 0)
+                conn.execute(update(produtos).where(produtos.c.id == produto['id']).values(estoque_full=novo_full, estoque_atual=novo_geral))
+                resumo['full'] += qtd
+            elif 'flex' in forma:
+                novo_flex = (produto.get('estoque_flex') or 0) + qtd
+                novo_geral = max((produto.get('estoque_atual') or 0) - qtd, 0)
+                conn.execute(update(produtos).where(produtos.c.id == produto['id']).values(estoque_flex=novo_flex, estoque_atual=novo_geral))
+                resumo['flex'] += qtd
+            else:
+                # Se não for full nem flex, só deduz do geral
+                novo_geral = max((produto.get('estoque_atual') or 0) - qtd, 0)
+                conn.execute(update(produtos).where(produtos.c.id == produto['id']).values(estoque_atual=novo_geral))
+                resumo['geral'] += qtd
+    return resumo
+
+# Criar todas as tabelas no banco de dados
+metadata.create_all(engine)
+
+# Migração: adicionar colunas ML (PostgreSQL e SQLite)
+def migrate_ml_columns():
+    """Adiciona colunas do Mercado Livre nas tabelas configuracoes e vendas"""
+    # Migração: adicionar coluna publicidade em produtos
+    try:
+        with engine.begin() as conn:
+            insp = inspect(engine)
+            prod_cols = [c["name"] for c in insp.get_columns("produtos")]
+            if "publicidade" not in prod_cols:
+                if raw_db_url:
+                    conn.execute(text("ALTER TABLE produtos ADD COLUMN IF NOT EXISTS publicidade FLOAT DEFAULT 0"))
+                else:
+                    conn.execute(text("ALTER TABLE produtos ADD COLUMN publicidade FLOAT DEFAULT 0"))
+                print("[MIGRATION] Coluna 'publicidade' adicionada em produtos")
+    except Exception as e:
+        print(f"[MIGRATION] Erro ao adicionar coluna 'publicidade' em produtos: {e}")
+
+    try:
+        with engine.begin() as conn:
+            insp = inspect(engine)
+
+            # Migração para configuracoes
+            cfg_cols = [c["name"] for c in insp.get_columns("configuracoes")]
+            ml_config_columns = [
+                ("ml_client_id", "VARCHAR(255)" if raw_db_url else "TEXT"),
+                ("ml_client_secret", "VARCHAR(255)" if raw_db_url else "TEXT"),
+                ("ml_access_token", "VARCHAR(500)" if raw_db_url else "TEXT"),
+                ("ml_refresh_token", "VARCHAR(500)" if raw_db_url else "TEXT"),
+                ("ml_token_expira", "VARCHAR(50)" if raw_db_url else "TEXT"),
+                ("ml_user_id", "VARCHAR(100)" if raw_db_url else "TEXT"),
+                ("ml_sync_auto", "VARCHAR(10)" if raw_db_url else "TEXT DEFAULT 'false'"),
+                ("ml_ultimo_sync", "VARCHAR(50)" if raw_db_url else "TEXT"),
+            ]
+
+            for col_name, col_type in ml_config_columns:
+                if col_name not in cfg_cols:
+                    try:
+                        if raw_db_url:
+                            sql = f"ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        else:
+                            sql = f"ALTER TABLE configuracoes ADD COLUMN {col_name} {col_type}"
+                        conn.execute(text(sql))
+                        print(f"[OK] Coluna {col_name} adicionada")
+                    except Exception as e:
+                        print(f"⚠️ Erro ao adicionar {col_name}: {e}")
+
+            # Migração para vendas
+            vendas_cols = [c["name"] for c in insp.get_columns("vendas")]
+            ml_vendas_columns = [
+                ("ml_order_id", "VARCHAR(50)" if raw_db_url else "TEXT"),
+                ("ml_status", "VARCHAR(50)" if raw_db_url else "TEXT"),
+            ]
+
+            for col_name, col_type in ml_vendas_columns:
+                if col_name not in vendas_cols:
+                    try:
+                        if raw_db_url:
+                            sql = f"ALTER TABLE vendas ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        else:
+                            sql = f"ALTER TABLE vendas ADD COLUMN {col_name} {col_type}"
+                        conn.execute(text(sql))
+                        print(f"[OK] Coluna {col_name} adicionada")
+                    except Exception as e:
+                        print(f"⚠️ Erro ao adicionar {col_name}: {e}")
+
+            # Criar índice único para ml_order_id (ignora se já existe)
+            try:
+                if raw_db_url:
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id) WHERE ml_order_id IS NOT NULL"))
+                else:
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_vendas_ml_order_id ON vendas(ml_order_id)"))
+                print("[OK] Índice ml_order_id criado")
+            except Exception as e:
+                print(f"[WARN] Índice ml_order_id: {e}")
+
+        print("[OK] Migração ML concluída")
+    except Exception as e:
+        print(f"[WARN] Migração ML falhou: {e}")
+
+    # migrate_ml_columns()  # chamada removida daqui; será executada após engine estar definido
+
+# Migração: adicionar colunas de papel/ativo em usuarios e garantir admin
+def migrate_user_columns_and_seed_admin():
+    try:
+        with engine.begin() as conn:
+            insp = inspect(engine)
+            cols = [c["name"] for c in insp.get_columns("usuarios")]
+
+            if "papel" not in cols:
+                try:
+                    if raw_db_url:
+                        conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS papel VARCHAR(20) DEFAULT 'vendedor'"))
+                    else:
+                        conn.execute(text("ALTER TABLE usuarios ADD COLUMN papel TEXT DEFAULT 'vendedor'"))
+                    print("[OK] Coluna 'papel' adicionada em usuarios")
+                except Exception as e:
+                    print(f"[WARN] Não foi possível adicionar coluna 'papel': {e}")
+
+            if "ativo" not in cols:
+                try:
+                    if raw_db_url:
+                        conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE"))
+                    else:
+                        conn.execute(text("ALTER TABLE usuarios ADD COLUMN ativo INTEGER DEFAULT 1"))
+                    print("[OK] Coluna 'ativo' adicionada em usuarios")
+                except Exception as e:
+                    print(f"[WARN] Não foi possível adicionar coluna 'ativo': {e}")
+
+            # Garantir que exista um usuário admin
+            has_admin = False
+            try:
+                res = conn.execute(text("SELECT id, username, papel FROM usuarios WHERE papel='admin' LIMIT 1")).mappings().first()
+                if res:
+                    has_admin = True
+            except Exception:
+                has_admin = False
+
+            if not has_admin:
+                # Se não houver usuários, criar admin padrão
+                try:
+                    any_user = conn.execute(text("SELECT id FROM usuarios LIMIT 1")).first()
+                    if not any_user:
+                        # criar usuário admin com senha 'admin' — peça para trocar depois
+                        pw_hash = bcrypt.generate_password_hash('admin').decode('utf-8')
+                        conn.execute(
+                            usuarios.insert().values(username='admin', password_hash=pw_hash, papel='admin', ativo=1)
+                        )
+                        print("[OK] Usuário 'admin' criado com senha padrão 'admin' — troque a senha imediatamente.")
+                    else:
+                        # promover primeiro usuário a admin
+                        first = conn.execute(text("SELECT id, username FROM usuarios LIMIT 1")).mappings().first()
+                        if first:
+                            conn.execute(text("UPDATE usuarios SET papel='admin' WHERE id = :id"), {"id": first['id']})
+                            print(f"[OK] Usuário {first['username']} promovido a admin")
+                except Exception as e:
+                    print(f"[WARN] Não foi possível criar/promover admin automaticamente: {e}")
+    except Exception as e:
+        print(f"[WARN] migrate_user_columns_and_seed_admin falhou: {e}")
 
 migrate_ml_columns()
+migrate_user_columns_and_seed_admin()
 
 # Helper para retry em operações de banco (SSL intermitente)
 def db_retry(func, max_attempts=3):
@@ -162,7 +470,7 @@ def db_retry(func, max_attempts=3):
         except OperationalError as e:
             if 'SSL' in str(e) or 'connection' in str(e).lower():
                 if attempt < max_attempts - 1:
-                    print(f"⚠️ Erro SSL (tentativa {attempt + 1}/{max_attempts}), retry em 1s...")
+                    print(f"[WARN] Erro SSL (tentativa {attempt + 1}/{max_attempts}), retry em 1s...")
                     time.sleep(1)
                     continue
             raise
@@ -229,16 +537,15 @@ def logout_view():
     logout_user()
     flash("Logout realizado!", "success")
     return redirect(url_for("login_view"))
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-engine: Engine = create_engine(DATABASE_URL, future=True)
-metadata = MetaData()
+# engine já criado anteriormente; não recriar aqui
+# metadata já definido anteriormente
 
  # --------------------------------------------------------------------
  # Definição das tabelas
 # --------------------------------------------------------------------
 # Rota para excluir lote de vendas
 @app.route("/excluir_lote_venda/<path:lote>", methods=["POST"])
+@login_required
 def excluir_lote_venda(lote):
     print(f"[DEBUG] Excluindo lote de vendas: {lote}")
     with engine.begin() as conn:
@@ -327,9 +634,12 @@ produtos = Table(
     Column("preco_venda_sugerido", Float, nullable=False, server_default="0"),
     Column("estoque_inicial", Integer, nullable=False, server_default="0"),
     Column("estoque_atual", Integer, nullable=False, server_default="0"),
+    Column("estoque_full", Integer, nullable=False, server_default="0"),
+    Column("estoque_flex", Integer, nullable=False, server_default="0"),
     Column("curva", String(1)),
     Column("criado_automaticamente", String(10), server_default="false"),  # true se criado pelo ML
     Column("vinculado_a", Integer, ForeignKey("produtos.id")),  # ref para produto real se criado automaticamente
+    Column("publicidade", Float, nullable=False, server_default="0"),
 )
 
 vendas = Table(
@@ -442,6 +752,19 @@ def init_db():
                 print("[MIGRATION] Coluna criado_automaticamente criada")
         except Exception as e:
             print(f"[MIGRATION] Erro ao criar criado_automaticamente: {e}")
+
+        # configuracoes.publicidade (valor numérico de despesa com publicidade)
+        try:
+            cfg_cols = [c["name"] for c in insp.get_columns("configuracoes")]
+            if "publicidade" not in cfg_cols:
+                # SQLite doesn't support ALTER TABLE ADD COLUMN IF NOT EXISTS with types consistently
+                if raw_db_url:
+                    conn.execute(text("ALTER TABLE configuracoes ADD COLUMN IF NOT EXISTS publicidade FLOAT DEFAULT 0"))
+                else:
+                    conn.execute(text("ALTER TABLE configuracoes ADD COLUMN publicidade FLOAT DEFAULT 0"))
+                print("[MIGRATION] Coluna 'publicidade' adicionada em configuracoes")
+        except Exception as e:
+            print(f"[MIGRATION] Erro ao adicionar coluna 'publicidade': {e}")
 
         # produtos.vinculado_a
         try:
@@ -816,7 +1139,7 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
     relatorio_filename = None
     if vendas_sem_sku_lista or vendas_sem_produto_lista:
         dados_relatorio = []
-        
+
         # Adicionar vendas sem SKU
         for v in vendas_sem_sku_lista:
             dados_relatorio.append({
@@ -826,7 +1149,7 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
                 "SKU": v['sku'],
                 "Ação Necessária": "Cadastrar produto ou adicionar SKU na planilha"
             })
-        
+
         # Adicionar vendas sem produto cadastrado
         for v in vendas_sem_produto_lista:
             dados_relatorio.append({
@@ -941,10 +1264,222 @@ def importar_produtos_excel(caminho_arquivo, engine: Engine):
     }
 
 
+    # --------------------------------------------------------------------
+    # Importação de estoque ML Full via Excel
+    # --------------------------------------------------------------------
+def importar_estoque_ml_full(caminho_arquivo, engine: Engine, modo='substituir'):
+    """
+    Importa estoque do Mercado Livre Full
+    Colunas esperadas: SKU, Produto, Unidades aptas (ou similar)
+    
+    modo: 'substituir' = sobrescreve estoque | 'ajustar' = calcula diferença
+    """
+    import unicodedata
+    df = pd.read_excel(caminho_arquivo, header=10)
+    # Normalizar nomes de colunas
+    df.columns = df.columns.str.strip()
+    def normalize_colname(s):
+        s = str(s).strip().lower()
+        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+        return s
+    print("[DEBUG] Colunas pandas:", list(df.columns))
+    print("[DEBUG] Colunas normalizadas:")
+    for col in df.columns:
+        print(f"  '{col}' => '{normalize_colname(col)}'")
+    """
+    Importa estoque do Mercado Livre Full
+    Colunas esperadas: SKU, Produto, Unidades aptas (ou similar)
+    
+    modo: 'substituir' = sobrescreve estoque | 'ajustar' = calcula diferença
+    """
+    df = pd.read_excel(caminho_arquivo, header=0)
+    
+    # Normalizar nomes de colunas
+    df.columns = df.columns.str.strip()
+    
+    # Identificar colunas (busca case-insensitive e por índice)
+    
+    # Debug: mostrar colunas encontradas
+    print(f"DEBUG: Total de colunas: {len(df.columns)}")
+    print(f"DEBUG: Colunas: {list(df.columns)}")
+    
+    col_quantidade = None
+    col_sku = None
+    col_produto = None
+    
+    # Forçar uso da coluna 'Aptas para venda' se existir (normalizando acentos e espaços)
+    import unicodedata
+    def normalize_colname(s):
+        s = str(s).strip().lower()
+        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+        return s
+
+    # Forçar uso da coluna de índice 16 como quantidade
+    col_quantidade = df.columns[16]
+    print(f"[DEBUG] Forçando coluna de quantidade: {col_quantidade}")
+    
+    # Se não encontrou, tentar por índice (ML Full: D=SKU, F=Produto, O=Unidades aptas)
+    if not col_sku and len(df.columns) > 3:
+        col_sku = df.columns[3]  # Coluna D (índice 3)
+    if not col_produto and len(df.columns) > 5:
+        col_produto = df.columns[5]  # Coluna F (índice 5)
+    if not col_quantidade and len(df.columns) > 14:
+        col_quantidade = df.columns[14]  # Coluna O (índice 14)
+    
+    if not col_quantidade:
+        raise ValueError(f"Não foi possível identificar coluna de quantidade. Colunas: {list(df.columns)}")
+    
+    if not col_sku:
+        raise ValueError(f"Não foi possível identificar coluna SKU. Colunas: {list(df.columns)}")
+    
+    produtos_atualizados = 0
+    produtos_nao_encontrados = []
+    ajustes_registrados = []
+    erros = []
+    
+    # Converter quantidade para numérico ANTES de agrupar
+    print(f"DEBUG: Processando {len(df)} linhas da planilha")
+    print(f"DEBUG: Coluna quantidade identificada: {col_quantidade}")
+    print(f"DEBUG: Coluna SKU identificada: {col_sku}")
+    
+    # Limpar e converter coluna de quantidade para numérico de forma robusta
+    def _parse_int_safe(val):
+        try:
+            if pd.isna(val):
+                return 0
+            # já numérico
+            if isinstance(val, (int, float)) and not (isinstance(val, float) and pd.isna(val)):
+                return int(round(val))
+            s = str(val).strip()
+            if s == "":
+                return 0
+            # manter apenas dígitos, ponto, vírgula e sinal
+            s = ''.join(ch for ch in s if ch.isdigit() or ch in '.,-')
+            if s == '' or s in ['-', ',', '.']:
+                return 0
+            # Tratamento comum BR/EN: se houver '.' e ',' assumir '.' como milhares e ',' como decimal
+            if s.count(',') > 0 and s.count('.') > 0:
+                s = s.replace('.', '').replace(',', '.')
+            else:
+                # remover separadores de milhar (ponto) e transformar vírgula em ponto
+                s = s.replace('.', '')
+                s = s.replace(',', '.')
+            f = float(s)
+            return int(round(f))
+        except Exception:
+            return 0
+
+    # Garantir SKU sem espaços e converter quantidade usando o parser seguro
+    df[col_sku] = df[col_sku].astype(str).str.strip()
+    df[col_quantidade] = df[col_quantidade].apply(_parse_int_safe)
+
+    total_before = int(df[col_quantidade].sum()) if col_quantidade in df.columns else 0
+    print(f"DEBUG: Soma total de quantidades (antes do agrupamento): {total_before}")
+    
+    # Agrupar por SKU e somar quantidades (produtos com múltiplos anúncios)
+    df_grouped = df.groupby(col_sku, as_index=False).agg({
+        col_quantidade: 'sum',
+        col_produto: 'first' if col_produto else col_sku  # Pegar o primeiro nome ou usar SKU
+    })
+    total_after = int(df_grouped[col_quantidade].sum()) if col_quantidade in df_grouped.columns else 0
+    print(f"DEBUG: Soma total de quantidades (após agrupamento): {total_after}")
+    print(f"DEBUG: Após agrupamento: {len(df_grouped)} SKUs únicos")
+    
+    # Mostrar amostra dos primeiros 3 produtos agrupados
+    for i in range(min(3, len(df_grouped))):
+        row_sample = df_grouped.iloc[i]
+        print(f"DEBUG: SKU={row_sample[col_sku]}, Qtd={row_sample[col_quantidade]}")
+    
+    with engine.begin() as conn:
+        for idx, row in df_grouped.iterrows():
+            try:
+                sku = str(row.get(col_sku) or "").strip()
+                if not sku:
+                    continue
+            
+                quantidade_ml = row.get(col_quantidade)
+                try:
+                    quantidade_ml = int(float(quantidade_ml)) if pd.notna(quantidade_ml) else 0
+                except:
+                    quantidade_ml = 0
+            
+                # Buscar produto pelo SKU
+                produto_row = conn.execute(
+                    select(produtos.c.id, produtos.c.nome, produtos.c.estoque_atual)
+                    .where(produtos.c.sku == sku)
+                ).mappings().first()
+            
+                if not produto_row:
+                    produtos_nao_encontrados.append({
+                        'sku': sku,
+                        'nome': row.get("Produto", ""),
+                        'quantidade_ml': quantidade_ml
+                    })
+                    continue
+            
+                estoque_anterior = produto_row['estoque_atual'] or 0
+            
+                if modo == 'substituir':
+                    # Substituir estoque pelo da planilha
+                    novo_estoque = quantidade_ml
+                    diferenca = novo_estoque - estoque_anterior
+                    tipo_ajuste = 'entrada' if diferenca > 0 else 'saida'
+                    quantidade_ajuste = abs(diferenca)
+                
+                elif modo == 'ajustar':
+                    # Calcular diferença
+                    diferenca = quantidade_ml - estoque_anterior
+                    if diferenca == 0:
+                        continue  # Sem mudança
+                
+                    tipo_ajuste = 'entrada' if diferenca > 0 else 'saida'
+                    quantidade_ajuste = abs(diferenca)
+                    novo_estoque = quantidade_ml
+            
+                # Atualizar estoque
+                conn.execute(
+                    update(produtos)
+                    .where(produtos.c.id == produto_row['id'])
+                    .values(estoque_atual=novo_estoque)
+                )
+            
+                # Registrar ajuste no histórico
+                if diferenca != 0:
+                    conn.execute(
+                        insert(ajustes_estoque).values(
+                            produto_id=produto_row['id'],
+                            tipo=tipo_ajuste,
+                            quantidade=quantidade_ajuste,
+                            custo_unitario=None,
+                            observacao=f"Ajuste automático via importação ML Full (anterior: {estoque_anterior}, novo: {novo_estoque})",
+                            data_ajuste=datetime.now()
+                        )
+                    )
+            
+                produtos_atualizados += 1
+                ajustes_registrados.append({
+                    'sku': sku,
+                    'nome': produto_row['nome'],
+                    'anterior': estoque_anterior,
+                    'novo': novo_estoque,
+                    'diferenca': diferenca
+                })
+            
+            except Exception as e:
+                erros.append(f"Linha {idx+2}: {str(e)}")
+    
+    return {
+        "produtos_atualizados": produtos_atualizados,
+        "produtos_nao_encontrados": produtos_nao_encontrados,
+        "ajustes_registrados": ajustes_registrados,
+        "erros": erros,
+    }
+
 # --------------------------------------------------------------------
 # Rotas principais
 # --------------------------------------------------------------------
 @app.route("/")
+@login_required
 def dashboard():
     # --- filtro de período ---
     data_inicio = request.args.get("data_inicio") or ""
@@ -993,6 +1528,25 @@ def dashboard():
             select(func.coalesce(func.sum(vendas.c.margem_contribuicao), 0))
             .where(*filtro_nao_cancelada)
         ).scalar_one()
+        # --- publicidade total (mensal): soma por produto vendido no período vezes meses ---
+        def _months_inclusive(start_str, end_str):
+            try:
+                d1 = date.fromisoformat(start_str)
+                d2 = date.fromisoformat(end_str)
+                months = (d2.year - d1.year) * 12 + (d2.month - d1.month) + 1
+                return max(1, months)
+            except Exception:
+                return 1
+
+        meses = _months_inclusive(data_inicio, data_fim)
+        query_pub = (
+            select(produtos.c.id.label("produto_id"), produtos.c.publicidade.label("publicidade"))
+            .select_from(vendas.join(produtos))
+            .where(*filtro_nao_cancelada)
+            .group_by(produtos.c.id)
+        )
+        pub_rows = conn.execute(query_pub).mappings().all()
+        publicidade_total = sum(float(r.get("publicidade") or 0) for r in pub_rows) * meses
         
         # --- VENDAS CANCELADAS (receita_total <= 0) ---
         vendas_canceladas_qtd = conn.execute(
@@ -1028,6 +1582,8 @@ def dashboard():
             - imposto_total
             - despesas_total
         )
+        # Subtrair publicidade mensal (pro rata por meses no período)
+        lucro_liquido_total = lucro_liquido_total - publicidade_total
 
         receita_liquida_total = receita_total - comissao_total 
 
@@ -1088,12 +1644,14 @@ def dashboard():
         vendas_canceladas_qtd=vendas_canceladas_qtd,
         vendas_canceladas_valor=vendas_canceladas_valor,
         cfg=cfg,
+        publicidade_total=publicidade_total,
         data_inicio=data_inicio,
         data_fim=data_fim,
     )
 
 # ---------------- PRODUTOS ----------------
 @app.route("/produtos")
+@login_required
 def lista_produtos():
     with engine.connect() as conn:
         produtos_rows = conn.execute(select(produtos).order_by(produtos.c.nome)).mappings().all()
@@ -1101,6 +1659,7 @@ def lista_produtos():
 
 
 @app.route("/produtos/novo", methods=["GET", "POST"])
+@login_required
 def novo_produto():
     if request.method == "POST":
         nome = request.form["nome"]
@@ -1127,6 +1686,7 @@ def novo_produto():
 
 
 @app.route("/produtos/<int:produto_id>/editar", methods=["GET", "POST"])
+@login_required
 def editar_produto(produto_id):
     if request.method == "POST":
         nome = request.form["nome"]
@@ -1163,6 +1723,7 @@ def editar_produto(produto_id):
 
 
 @app.route("/produtos/<int:produto_id>/excluir", methods=["POST"])
+@login_required
 def excluir_produto(produto_id):
     """Deleta um produto (apenas se não tiver vendas)"""
     try:
@@ -1200,6 +1761,7 @@ def excluir_produto(produto_id):
 
 
 @app.route("/produtos/<int:produto_id>/excluir_com_vendas", methods=["POST"])
+@login_required
 def excluir_produto_com_vendas(produto_id):
     """Deleta o produto E todas as suas vendas associadas"""
     try:
@@ -1239,6 +1801,7 @@ def excluir_produto_com_vendas(produto_id):
 
 
 @app.route("/produtos/importar", methods=["GET", "POST"])
+@login_required
 def importar_produtos_view():
     if request.method == "POST":
         if "arquivo" not in request.files:
@@ -1268,6 +1831,48 @@ def importar_produtos_view():
     return render_template("importar_produtos.html")
 
 
+@app.route("/estoque/importar-ml-full", methods=["GET", "POST"])
+@login_required
+def importar_estoque_ml_full_view():
+    if request.method == "POST":
+        if "arquivo" not in request.files:
+            flash("Nenhum arquivo enviado.", "danger")
+            return redirect(request.url)
+
+        file = request.files["arquivo"]
+        if file.filename == "":
+            flash("Selecione um arquivo.", "danger")
+            return redirect(request.url)
+
+        modo = request.form.get("modo", "substituir")
+
+        filename = secure_filename(file.filename)
+        caminho = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        file.save(caminho)
+
+        try:
+            resumo = importar_estoque_ml_full(caminho, engine, modo=modo)
+
+            # Criar mensagem detalhada
+            msg = f"✅ {resumo['produtos_atualizados']} produtos atualizados."
+
+            if resumo['produtos_nao_encontrados']:
+                msg += f" ⚠️ {len(resumo['produtos_nao_encontrados'])} SKUs não encontrados no sistema."
+
+            if resumo['erros']:
+                msg += f" ❌ {len(resumo['erros'])} erros."
+
+            flash(msg, "success" if not resumo['erros'] else "warning")
+
+            # Passar resumo para exibir detalhes
+            return render_template("importar_estoque_ml.html", resumo=resumo)
+
+        except Exception as e:
+            flash(f"Erro na importação: {e}", "danger")
+            return redirect(request.url)
+
+    return render_template("importar_estoque_ml.html")
+
 # ---------------- VENDAS ----------------
 from flask import request, render_template
 from sqlalchemy import select, func
@@ -1277,6 +1882,7 @@ from math import ceil
 VENDAS_POR_PAGINA = 100
 
 @app.route("/vendas")
+@login_required
 def lista_vendas():
     data_inicio = request.args.get("data_inicio") or ""
     data_fim = request.args.get("data_fim") or ""
@@ -1295,11 +1901,24 @@ def lista_vendas():
     if not data_fim:
         data_fim = default_data_fim
 
-    # defaults para o gráfico pizza (para não quebrar template)
+    # defaults para os gráficos pizza
     pizza_estados_labels = []
     pizza_estados_valores = []
+    pizza_mais_vendidos_labels = []
+    pizza_mais_vendidos_valores = []
+    pizza_mais_lucrativos_labels = []
+    pizza_mais_lucrativos_valores = []
+    pizza_menos_lucrativos_labels = []
+    pizza_menos_lucrativos_valores = []
 
     with engine.connect() as conn:
+        cfg = conn.execute(
+            select(configuracoes).where(configuracoes.c.id == 1)
+        ).mappings().first() or {}
+
+        imposto_percent = float(cfg.get("imposto_percent") or 0)
+        despesas_percent = float(cfg.get("despesas_percent") or 0)
+
         # =======================
         # CONSULTA VENDAS (RESPEITA FILTRO DA TELA)
         # =======================
@@ -1314,7 +1933,9 @@ def lista_vendas():
             vendas.c.origem,
             vendas.c.numero_venda_ml,
             vendas.c.lote_importacao,
+            produtos.c.id.label("produto_id"),
             produtos.c.nome,
+            produtos.c.publicidade,
         ).select_from(vendas.join(produtos))
 
         query_vendas = query_vendas.where(
@@ -1354,33 +1975,87 @@ def lista_vendas():
         # =======================
         # GRÁFICO PIZZA POR ESTADO (UF) - RESPEITA FILTRO
         # =======================
-        # tenta achar uma coluna de UF/Estado na sua tabela vendas
-        col_uf = None
-        for candidate in ["uf", "estado", "estado_uf", "uf_cliente", "estado_cliente"]:
-            if candidate in vendas.c:
-                col_uf = vendas.c[candidate]
-                break
-
-        if col_uf is not None:
+        # Usar a coluna 'estado' diretamente
+        if "estado" in vendas.c:
             query_estados = select(
-                func.coalesce(col_uf, "N/I").label("uf"),
+                vendas.c.estado.label("uf"),
                 func.coalesce(func.sum(vendas.c.receita_total), 0).label("total_receita"),
                 func.count().label("qtd_vendas"),
             ).where(
                 vendas.c.data_venda >= data_inicio,
-                vendas.c.data_venda <= data_fim + "T23:59:59"
-            ).group_by(func.coalesce(col_uf, "N/I")) \
+                vendas.c.data_venda <= data_fim + "T23:59:59",
+                vendas.c.receita_total > 0,
+                vendas.c.estado.isnot(None),
+                vendas.c.estado != ""
+            ).group_by(vendas.c.estado) \
              .order_by(func.coalesce(func.sum(vendas.c.receita_total), 0).desc())
 
             estados_rows = conn.execute(query_estados).mappings().all()
 
-            # ✅ Pizza por Receita (padrão)
-            # Filtrar valores vazios e NULL
-            pizza_estados_labels = [r["uf"] for r in estados_rows if r["uf"] and r["uf"] != "N/I" and r["uf"].strip()]
-            pizza_estados_valores = [float(r["total_receita"] or 0) for r in estados_rows if r["uf"] and r["uf"] != "N/I" and r["uf"].strip()]
+            # Pizza por Receita
+            pizza_estados_labels = [r["uf"] for r in estados_rows if r["uf"]]
+            pizza_estados_valores = [float(r["total_receita"] or 0) for r in estados_rows if r["uf"]]
 
-            # Se quiser por quantidade, use isto no lugar:
-            # pizza_estados_valores = [int(r["qtd_vendas"] or 0) for r in estados_rows]
+        # =======================
+        # GRÁFICOS PIZZA POR PRODUTO (SKU)
+        # =======================
+        
+        # 1. Top 10 Produtos Mais Vendidos (por quantidade)
+        query_mais_vendidos = select(
+            produtos.c.sku,
+            produtos.c.nome,
+            func.sum(vendas.c.quantidade).label("total_qtd")
+        ).select_from(
+            vendas.join(produtos)
+        ).where(
+            vendas.c.data_venda >= data_inicio,
+            vendas.c.data_venda <= data_fim + "T23:59:59",
+            vendas.c.receita_total > 0
+        ).group_by(produtos.c.id, produtos.c.sku, produtos.c.nome) \
+         .order_by(func.sum(vendas.c.quantidade).desc()) \
+         .limit(10)
+        
+        mais_vendidos = conn.execute(query_mais_vendidos).mappings().all()
+        pizza_mais_vendidos_labels = [f"{r['sku']}" for r in mais_vendidos]
+        pizza_mais_vendidos_valores = [float(r["total_qtd"] or 0) for r in mais_vendidos]
+        
+        # 2. Top 10 Produtos Mais Lucrativos
+        query_mais_lucrativos = select(
+            produtos.c.sku,
+            produtos.c.nome,
+            func.sum(vendas.c.margem_contribuicao).label("total_lucro")
+        ).select_from(
+            vendas.join(produtos)
+        ).where(
+            vendas.c.data_venda >= data_inicio,
+            vendas.c.data_venda <= data_fim + "T23:59:59",
+            vendas.c.receita_total > 0
+        ).group_by(produtos.c.id, produtos.c.sku, produtos.c.nome) \
+         .order_by(func.sum(vendas.c.margem_contribuicao).desc()) \
+         .limit(10)
+        
+        mais_lucrativos = conn.execute(query_mais_lucrativos).mappings().all()
+        pizza_mais_lucrativos_labels = [f"{r['sku']}" for r in mais_lucrativos]
+        pizza_mais_lucrativos_valores = [float(r["total_lucro"] or 0) for r in mais_lucrativos]
+        
+        # 3. Top 10 Produtos Menos Lucrativos (mas que tiveram vendas)
+        query_menos_lucrativos = select(
+            produtos.c.sku,
+            produtos.c.nome,
+            func.sum(vendas.c.margem_contribuicao).label("total_lucro")
+        ).select_from(
+            vendas.join(produtos)
+        ).where(
+            vendas.c.data_venda >= data_inicio,
+            vendas.c.data_venda <= data_fim + "T23:59:59",
+            vendas.c.receita_total > 0
+        ).group_by(produtos.c.id, produtos.c.sku, produtos.c.nome) \
+         .order_by(func.sum(vendas.c.margem_contribuicao).asc()) \
+         .limit(10)
+        
+        menos_lucrativos = conn.execute(query_menos_lucrativos).mappings().all()
+        pizza_menos_lucrativos_labels = [f"{r['sku']}" for r in menos_lucrativos]
+        pizza_menos_lucrativos_valores = [float(r["total_lucro"] or 0) for r in menos_lucrativos]
 
     # =======================
     # GRÁFICOS 30 DIAS (FATURAMENTO / QTD / LUCRO)
@@ -1390,7 +2065,9 @@ def lista_vendas():
     lucro_dia = {}
     receita_liquida_dia = {}
 
-    for v in vendas_all:
+    vendas_validas = [v for v in vendas_all if float(v.get("receita_total") or 0) > 0]
+
+    for v in vendas_validas:
         if not v["data_venda"]:
             continue
         try:
@@ -1405,7 +2082,9 @@ def lista_vendas():
 
         # lucro líquido do dia (mesma lógica do dashboard)
         comissao_ml = max(0.0, (receita - custo) - margem)
-        lucro = receita - custo - comissao_ml
+        imposto_val = receita * (imposto_percent / 100.0)
+        despesas_val = receita * (despesas_percent / 100.0)
+        lucro = receita - custo - comissao_ml - imposto_val - despesas_val
 
         faturamento_dia[dt] = faturamento_dia.get(dt, 0) + receita
         quantidade_dia[dt] = quantidade_dia.get(dt, 0) + qtd
@@ -1421,73 +2100,43 @@ def lista_vendas():
     grafico_receita_liquida = [receita_liquida_dia.get(d, 0) for d in dias]
 
     # =========================
-    # COMPARATIVO: PERÍODO FILTRADO vs PERÍODO ANTERIOR
-    # (RESPEITA O FILTRO DA TELA)
-    # =========================
-    try:
-        data_fim_dt = datetime.fromisoformat(data_fim).date() if data_fim else hoje
-        data_inicio_dt = datetime.fromisoformat(data_inicio).date() if data_inicio else trinta_dias_atras
-    except Exception:
-        data_fim_dt = hoje
-        data_inicio_dt = trinta_dias_atras
-    
-    # Período atual (filtrado na tela)
-    periodo_atual_dias = (data_fim_dt - data_inicio_dt).days + 1
-    
-    # Período anterior (mesmo tamanho)
-    periodo_anterior_fim = data_inicio_dt - timedelta(days=1)
-    periodo_anterior_inicio = periodo_anterior_fim - timedelta(days=periodo_atual_dias - 1)
-
-    # Busca vendas dos dois períodos (exclui canceladas)
-    with engine.connect() as conn_cmp:
-        rows_cmp = conn_cmp.execute(
-            select(
-                vendas.c.data_venda,
-                vendas.c.receita_total
-            ).where(
-                vendas.c.data_venda >= periodo_anterior_inicio.isoformat(),
-                vendas.c.data_venda <= data_fim_dt.isoformat() + "T23:59:59",
-                vendas.c.receita_total > 0
-            )
-        ).mappings().all()
-
-    # Dicionários para acumular por dia (1..30)
-    faturamento_periodo_atual = {}
-    faturamento_periodo_anterior = {}
-
-    for v in rows_cmp:
-        data_raw = v["data_venda"]
-        if not data_raw:
-            continue
-        try:
-            dt = datetime.fromisoformat(str(data_raw)).date()
-        except Exception:
-            continue
-
-        receita = float(v["receita_total"] or 0)
-
-        # Período atual
-        if data_inicio_dt <= dt <= data_fim_dt:
-            dia_offset = (dt - data_inicio_dt).days + 1
-            faturamento_periodo_atual[dia_offset] = faturamento_periodo_atual.get(dia_offset, 0) + receita
-
-        # Período anterior
-        elif periodo_anterior_inicio <= dt <= periodo_anterior_fim:
-            dia_offset = (dt - periodo_anterior_inicio).days + 1
-            faturamento_periodo_anterior[dia_offset] = faturamento_periodo_anterior.get(dia_offset, 0) + receita
-
-    # Labels e dados alinhados (1..período_atual_dias)
-    grafico_cmp_labels = [f"{d:02d}" for d in range(1, periodo_atual_dias + 1)]
-    grafico_cmp_atual = [faturamento_periodo_atual.get(d, 0) for d in range(1, periodo_atual_dias + 1)]
-    grafico_cmp_anterior = [faturamento_periodo_anterior.get(d, 0) for d in range(1, periodo_atual_dias + 1)]
-
-    # =========================
     # TOTAIS (RESPEITAM O FILTRO DA TELA)
     # =========================
+    total_receita = sum(float(q.get("receita_total") or 0) for q in vendas_validas)
+    total_custo = sum(float(q.get("custo_total") or 0) for q in vendas_validas)
+    total_margem = sum(float(q.get("margem_contribuicao") or 0) for q in vendas_validas)
+    total_comissao = max(0.0, (total_receita - total_custo) - total_margem)
+    total_imposto = total_receita * (imposto_percent / 100.0)
+    total_despesas = total_receita * (despesas_percent / 100.0)
+    # publicidade total por produto (mensal): soma única por produto vendido no período * meses
+    def _months_inclusive(start_str, end_str):
+        try:
+            d1 = date.fromisoformat(start_str)
+            d2 = date.fromisoformat(end_str)
+            months = (d2.year - d1.year) * 12 + (d2.month - d1.month) + 1
+            return max(1, months)
+        except Exception:
+            return 1
+
+    meses = _months_inclusive(data_inicio, data_fim)
+    prod_pub = {}
+    for q in vendas_all:
+        pid = q.get("produto_id")
+        if pid is None:
+            continue
+        prod_pub[pid] = float(q.get("publicidade") or 0)
+    publicidade_total = sum(prod_pub.values()) * meses
+
+    total_lucro_liquido = total_receita - total_custo - total_comissao - total_imposto - total_despesas - publicidade_total
+
     totais = {
-        "qtd": sum(float(q.get("quantidade") or 0) for q in vendas_all),
-        "receita": sum(float(q.get("receita_total") or 0) for q in vendas_all),
-        "custo": sum(float(q.get("custo_total") or 0) for q in vendas_all),
+        "qtd": sum(float(q.get("quantidade") or 0) for q in vendas_validas),
+        "receita": total_receita,
+        "custo": total_custo,
+        "lucro_liquido": total_lucro_liquido,
+        "publicidade": publicidade_total,
+        "imposto": total_imposto,
+        "despesas": total_despesas,
     }
 
     return render_template(
@@ -1503,11 +2152,14 @@ def lista_vendas():
         grafico_quantidade=grafico_quantidade,
         grafico_lucro=grafico_lucro,
         grafico_receita_liquida=grafico_receita_liquida,
-        grafico_cmp_labels=grafico_cmp_labels,
-        grafico_cmp_atual=grafico_cmp_atual,
-        grafico_cmp_anterior=grafico_cmp_anterior,
         pizza_estados_labels=pizza_estados_labels,
         pizza_estados_valores=pizza_estados_valores,
+        pizza_mais_vendidos_labels=pizza_mais_vendidos_labels,
+        pizza_mais_vendidos_valores=pizza_mais_vendidos_valores,
+        pizza_mais_lucrativos_labels=pizza_mais_lucrativos_labels,
+        pizza_mais_lucrativos_valores=pizza_mais_lucrativos_valores,
+        pizza_menos_lucrativos_labels=pizza_menos_lucrativos_labels,
+        pizza_menos_lucrativos_valores=pizza_menos_lucrativos_valores,
         total_pages=total_pages,
         current_page=page
     )
@@ -1515,6 +2167,7 @@ def lista_vendas():
 
 # ---------------- IMPORT / EXPORT ----------------
 @app.route("/importar_ml", methods=["GET", "POST"])
+@login_required
 def importar_ml_view():
     if request.method == "POST":
         if "arquivo" not in request.files:
@@ -1568,6 +2221,7 @@ def download_relatorio(filename):
 
 
 @app.route("/exportar_consolidado")
+@login_required
 def exportar_consolidado():
     """Exporta planilha de consolidação das vendas."""
     with engine.connect() as conn:
@@ -1603,6 +2257,7 @@ def exportar_consolidado():
 
 
 @app.route("/exportar_template")
+@login_required
 def exportar_template():
     """Exporta o modelo de planilha para preenchimento manual (SKU, Título, Quantidade, Receita, Comissao, PrecoMedio)."""
     cols = ["SKU", "Título", "Quantidade", "Receita", "Comissao", "PrecoMedio"]
@@ -1622,6 +2277,7 @@ def exportar_template():
 # ---------------- ESTOQUE / AJUSTES ----------------
 # ---------------- ESTOQUE / AJUSTES ----------------
 @app.route("/estoque")
+@login_required
 def estoque_view():
     """Visão de estoque com médias reais dos últimos 30 dias
     + receita potencial (bruta - comissão ML)
@@ -1688,7 +2344,6 @@ def estoque_view():
 
         if not data_raw:
             continue
-
         dt = parse_data_venda(data_raw)
         if not dt:
             try:
@@ -1821,6 +2476,7 @@ def estoque_view():
     )
 # GET – formulário de ajuste
 @app.route("/estoque/ajuste", methods=["GET"])
+@login_required
 def ajuste_estoque_form():
     with engine.connect() as conn:
         produtos_rows = conn.execute(
@@ -1840,6 +2496,7 @@ def ajuste_estoque_form():
 
 # POST – grava ajuste com custo médio ponderado
 @app.route("/estoque/ajuste", methods=["POST"])
+@login_required
 def ajuste_estoque():
     produto_id = int(request.form["produto_id"])
     tipo = request.form["tipo"]  # entrada ou saida
@@ -1909,11 +2566,13 @@ def ajuste_estoque():
     flash("Ajuste de estoque registrado com custo médio atualizado!", "success")
     return redirect(url_for("estoque_view"))
 @app.route("/ajuste_estoque")
+@login_required
 def ajuste_estoque_view():
     return render_template("ajuste_estoque.html")
 
 # ---------------- CONFIGURAÇÕES ----------------
 @app.route("/configuracoes", methods=["GET", "POST"])
+@login_required
 def configuracoes_view():
     if request.method == "POST":
         imposto_percent = float(request.form.get("imposto_percent", 0) or 0)
@@ -1937,7 +2596,123 @@ def configuracoes_view():
 
 # ---------------- RELATÓRIO LUCRO ----------------
 @app.route("/relatorio_lucro")
+@login_required
 def relatorio_lucro():
+    """Relatório de lucro detalhado por produto, com filtro de período."""
+    data_inicio = request.args.get("data_inicio") or ""
+    data_fim = request.args.get("data_fim") or ""
+    if not data_inicio and not data_fim:
+        hoje = date.today()
+        inicio_mes = hoje.replace(day=1)
+        data_inicio = inicio_mes.isoformat()
+        data_fim = hoje.isoformat()
+    # calcular meses no período (inclusivo)
+    def _months_inclusive(start_str, end_str):
+        try:
+            d1 = date.fromisoformat(start_str)
+            d2 = date.fromisoformat(end_str)
+            months = (d2.year - d1.year) * 12 + (d2.month - d1.month) + 1
+            return max(1, months)
+        except Exception:
+            return 1
+
+    meses = _months_inclusive(data_inicio, data_fim)
+
+    with engine.connect() as conn:
+        cfg = conn.execute(
+            select(configuracoes).where(configuracoes.c.id == 1)
+        ).mappings().first() or {}
+        imposto_percent = float(cfg.get("imposto_percent") or 0)
+        despesas_percent = float(cfg.get("despesas_percent") or 0)
+        query = (
+            select(
+                produtos.c.id.label("produto_id"),
+                produtos.c.nome.label("produto"),
+                produtos.c.publicidade.label("publicidade"),
+                func.sum(vendas.c.quantidade).label("qtd"),
+                func.sum(vendas.c.receita_total).label("receita"),
+                func.sum(vendas.c.custo_total).label("custo"),
+                func.sum(vendas.c.margem_contribuicao).label("margem_atual"),
+            )
+            .select_from(vendas.join(produtos))
+            .where(vendas.c.receita_total > 0)
+        )
+        if data_inicio:
+            query = query.where(vendas.c.data_venda >= data_inicio)
+        if data_fim:
+            query = query.where(vendas.c.data_venda <= data_fim + "T23:59:59")
+        query = query.group_by(produtos.c.id)
+        rows = conn.execute(query).mappings().all()
+    linhas = []
+    totais = {"qtd": 0.0, "receita": 0.0, "custo": 0.0, "comissao": 0.0, "imposto": 0.0, "despesas": 0.0, "publicidade": 0.0, "margem_liquida": 0.0}
+    for r in rows:
+        receita = float(r["receita"] or 0)
+        custo = float(r["custo"] or 0)
+        margem_atual = float(r["margem_atual"] or 0)
+        # publicidade é mensal por produto -> multiplicar pelos meses do período
+        publicidade_prod = float(r["publicidade"] or 0) * meses
+        comissao_ml = max(0.0, (receita - custo) - margem_atual)
+        imposto_val = receita * (imposto_percent / 100.0)
+        despesas_val = receita * (despesas_percent / 100.0)
+        margem_liquida = receita - custo - comissao_ml - imposto_val - despesas_val - publicidade_prod
+        qtd = float(r["qtd"] or 0)
+        receita_liquida_unit = (receita - comissao_ml) / qtd if qtd > 0 else 0.0
+        comissao_unit = comissao_ml / qtd if qtd > 0 else 0.0
+        custo_unit = custo / qtd if qtd > 0 else 0.0
+        lucro_unit = margem_liquida / qtd if qtd > 0 else 0.0
+        linha = {
+            "produto_id": r["produto_id"],
+            "produto": r["produto"],
+            "qtd": qtd,
+            "receita": receita,
+            "custo": custo,
+            "custo_unit": custo_unit,
+            "comissao": comissao_ml,
+            "comissao_unit": comissao_unit,
+            "receita_liquida_unit": receita_liquida_unit,
+            "imposto": imposto_val,
+            "despesas": despesas_val,
+            "publicidade": publicidade_prod,
+            "margem_liquida": margem_liquida,
+            "lucro_unit": lucro_unit,
+        }
+        linhas.append(linha)
+        totais["qtd"] += linha["qtd"]
+        totais["receita"] += receita
+        totais["custo"] += custo
+        totais["comissao"] += comissao_ml
+        totais["imposto"] += imposto_val
+        totais["despesas"] += despesas_val
+        totais["publicidade"] += publicidade_prod
+        totais["margem_liquida"] += margem_liquida
+    linhas.sort(key=lambda x: x["margem_liquida"], reverse=True)
+    return render_template(
+        "relatorio_lucro.html",
+        linhas=linhas,
+        totais=totais,
+        imposto_percent=imposto_percent,
+        despesas_percent=despesas_percent,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
+    # Nova rota para atualizar publicidade de produto
+    @app.route('/relatorio_lucro/publicidade_produto', methods=['POST'])
+    @login_required
+    def relatorio_lucro_publicidade_produto():
+        produto_id = request.form.get('produto_id')
+        val = request.form.get('publicidade')
+        try:
+            v = float(val) if val not in (None, '') else 0.0
+        except Exception:
+            flash('Valor de publicidade inválido', 'danger')
+            return redirect(url_for('relatorio_lucro'))
+        with engine.begin() as conn:
+            try:
+                conn.execute(update(produtos).where(produtos.c.id == produto_id).values(publicidade=v))
+                flash('Publicidade do produto atualizada.', 'success')
+            except Exception as e:
+                flash(f'Erro ao salvar publicidade: {e}', 'danger')
+        return redirect(url_for('relatorio_lucro'))
     """Relatório de lucro detalhado por produto, com filtro de período.
 
     Por padrão: mês vigente (do dia 1 até hoje).
@@ -1992,6 +2767,7 @@ def relatorio_lucro():
         "comissao": 0.0,
         "imposto": 0.0,
         "despesas": 0.0,
+        "publicidade": 0.0,
         "margem_liquida": 0.0,
     }
 
@@ -2007,16 +2783,27 @@ def relatorio_lucro():
         despesas_val = receita * (despesas_percent / 100.0)
 
         margem_liquida = receita - custo - comissao_ml - imposto_val - despesas_val
+        
+        # Receita Líquida por Unidade (Receita - Comissão ML) / Quantidade
+        qtd = float(r["qtd"] or 0)
+        receita_liquida_unit = (receita - comissao_ml) / qtd if qtd > 0 else 0.0
+        comissao_unit = comissao_ml / qtd if qtd > 0 else 0.0
+        custo_unit = custo / qtd if qtd > 0 else 0.0
+        lucro_unit = margem_liquida / qtd if qtd > 0 else 0.0
 
         linha = {
             "produto": r["produto"],
-            "qtd": float(r["qtd"] or 0),
+            "qtd": qtd,
             "receita": receita,
             "custo": custo,
+            "custo_unit": custo_unit,
             "comissao": comissao_ml,
+            "comissao_unit": comissao_unit,
+            "receita_liquida_unit": receita_liquida_unit,
             "imposto": imposto_val,
             "despesas": despesas_val,
             "margem_liquida": margem_liquida,
+            "lucro_unit": lucro_unit,
         }
         linhas.append(linha)
 
@@ -2026,6 +2813,7 @@ def relatorio_lucro():
         totais["comissao"] += comissao_ml
         totais["imposto"] += imposto_val
         totais["despesas"] += despesas_val
+        totais["publicidade"] += publicidade_prod
         totais["margem_liquida"] += margem_liquida
 
     # Ordena do maior lucro líquido para o menor
@@ -2039,8 +2827,10 @@ def relatorio_lucro():
         despesas_percent=despesas_percent,
         data_inicio=data_inicio,
         data_fim=data_fim,
+        publicidade=float(cfg.get("publicidade") or 0.0),
     )
 @app.route("/relatorio_lucro/exportar")
+@login_required
 def relatorio_lucro_exportar():
     # mesmo critério de período do relatorio_lucro
     data_inicio = request.args.get("data_inicio") or ""
@@ -2051,6 +2841,47 @@ def relatorio_lucro_exportar():
         inicio_mes = hoje.replace(day=1)
         data_inicio = inicio_mes.isoformat()
         data_fim = hoje.isoformat()
+
+
+@app.route('/relatorio_lucro/publicidade', methods=['POST'])
+@login_required
+def relatorio_lucro_publicidade():
+    """Atualiza o valor de publicidade nas configuracoes (id=1)."""
+    val = request.form.get('publicidade')
+    try:
+        v = float(val) if val not in (None, '') else 0.0
+    except Exception:
+        flash('Valor de publicidade inválido', 'danger')
+        return redirect(url_for('relatorio_lucro'))
+
+    with engine.begin() as conn:
+        try:
+            conn.execute(update(configuracoes).where(configuracoes.c.id == 1).values(publicidade=v))
+            flash('Valor de publicidade atualizado.', 'success')
+        except Exception as e:
+            flash(f'Erro ao salvar publicidade: {e}', 'danger')
+
+    return redirect(url_for('relatorio_lucro'))
+
+
+@app.route('/relatorio_lucro/publicidade_produto', methods=['POST'])
+@login_required
+def relatorio_lucro_publicidade_produto():
+    """Atualiza publicidade por produto (coluna produtos.publicidade)."""
+    produto_id = request.form.get('produto_id')
+    val = request.form.get('publicidade')
+    try:
+        v = float(val) if val not in (None, '') else 0.0
+    except Exception:
+        flash('Valor de publicidade inválido', 'danger')
+        return redirect(url_for('relatorio_lucro'))
+    with engine.begin() as conn:
+        try:
+            conn.execute(update(produtos).where(produtos.c.id == produto_id).values(publicidade=v))
+            flash('Publicidade do produto atualizada.', 'success')
+        except Exception as e:
+            flash(f'Erro ao salvar publicidade: {e}', 'danger')
+    return redirect(url_for('relatorio_lucro'))
 
     with engine.connect() as conn:
         cfg = conn.execute(
@@ -2093,16 +2924,26 @@ def relatorio_lucro_exportar():
         imposto_val = receita * (imposto_percent / 100.0)
         despesas_val = receita * (despesas_percent / 100.0)
         margem_liquida = receita - custo - comissao_ml - imposto_val - despesas_val
+        
+        # Receita Líquida por Unidade e Comissão Unitária
+        receita_liquida_unit = (receita - comissao_ml) / qtd if qtd > 0 else 0.0
+        comissao_unit = comissao_ml / qtd if qtd > 0 else 0.0
+        custo_unit = custo / qtd if qtd > 0 else 0.0
+        lucro_unit = margem_liquida / qtd if qtd > 0 else 0.0
 
         linhas_export.append({
             "Produto": r["produto"],
             "Quantidade": qtd,
             "Receita (R$)": receita,
             "Custo (R$)": custo,
+            "Custo/Un. (R$)": custo_unit,
             "Comissão ML (R$)": comissao_ml,
+            "Comissão/Un. (R$)": comissao_unit,
+            "Receita Líq./Un. (R$)": receita_liquida_unit,
             "Imposto (R$)": imposto_val,
             "Despesas (R$)": despesas_val,
             "Lucro líquido (R$)": margem_liquida,
+            "Lucro Líq./Un. (R$)": lucro_unit,
         })
 
     df = pd.DataFrame(linhas_export)
@@ -2136,6 +2977,22 @@ def _parse_iso_or_none(value):
         if isinstance(value, date) and not isinstance(value, datetime):
             return datetime.combine(value, datetime.min.time())
         return value
+        try:
+            cols = [c["name"] for c in insp.get_columns("produtos")]
+            if "estoque_full" not in cols:
+                conn.execute(text('ALTER TABLE produtos ADD COLUMN estoque_full INTEGER DEFAULT 0'))
+                print("[MIGRATION] Coluna estoque_full criada")
+        except Exception as e:
+            print(f"[MIGRATION] Erro ao criar estoque_full: {e}")
+
+        # produtos.estoque_flex
+        try:
+            cols = [c["name"] for c in insp.get_columns("produtos")]
+            if "estoque_flex" not in cols:
+                conn.execute(text('ALTER TABLE produtos ADD COLUMN estoque_flex INTEGER DEFAULT 0'))
+                print("[MIGRATION] Coluna estoque_flex criada")
+        except Exception as e:
+            print(f"[MIGRATION] Erro ao criar estoque_flex: {e}")
     try:
         s = str(value)
         # tenta ISO completo com timezone
@@ -2149,7 +3006,38 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
 
     df = pd.read_excel(caminho_arquivo)
     # normaliza colunas
-    df.columns = [str(c).strip() for c in df.columns]
+    df.columns = [str(c).strip().upper() for c in df.columns]
+
+    print(f"DEBUG: Colunas detectadas: {list(df.columns)}")
+    print(f"DEBUG: Primeiras linhas:\n{df.head()}")
+
+    # Detecta qual formato de arquivo é
+    is_new_format = "RELEASE_DATE" in df.columns and "REFERENCE_ID" in df.columns
+    is_bank_summary_format = "INITIAL_BALANCE" in df.columns or "CREDITS" in df.columns or "DEBITS" in df.columns or "FINAL_BALANCE" in df.columns
+    
+    # Se for novo formato MP Full, redireciona
+    if is_new_format:
+        return importar_mp_full_excel(caminho_arquivo, engine)
+    
+    # Se for resumo bancário, processa como movimento
+    if is_bank_summary_format:
+        return importar_mp_bank_summary(caminho_arquivo, engine)
+
+    # Validação para formato antigo
+    # Tenta encontrar as colunas (case-insensitive)
+    id_col = next((c for c in df.columns if "ID" in c and "TRANSAÇÃO" in c.upper() or "ID TRANSACAO" in c.upper()), None)
+    tipo_col = next((c for c in df.columns if "TIPO" in c and ("TRANSAÇÃO" in c.upper() or "TRANSACAO" in c.upper() or "TRANSACTION_TYPE" in c.upper())), None)
+    valor_col = next((c for c in df.columns if "VALOR" in c and ("LÍQUIDO" in c.upper() or "LIQUIDO" in c.upper() or "TRANSACTION_NET_AMOUNT" in c.upper())), None)
+    data_col = next((c for c in df.columns if "DATA" in c and ("LIBERAÇÃO" in c.upper() or "LIBERACAO" in c.upper() or "RELEASE_DATE" in c.upper())), None)
+
+    if not id_col or not tipo_col or not valor_col:
+        missing = []
+        if not id_col: missing.append("ID DA TRANSAÇÃO")
+        if not tipo_col: missing.append("TIPO DE TRANSAÇÃO")
+        if not valor_col: missing.append("VALOR LÍQUIDO DA TRANSAÇÃO")
+        raise ValueError(f"❌ Formato de arquivo não reconhecido. Colunas encontradas: {', '.join(df.columns)}. "
+                        f"Envie um arquivo com: ID DA TRANSAÇÃO, TIPO DE TRANSAÇÃO, VALOR LÍQUIDO DA TRANSAÇÃO (formato antigo) "
+                        f"OU RELEASE_DATE, TRANSACTION_TYPE, REFERENCE_ID, TRANSACTION_NET_AMOUNT (formato MP Full).")
 
     # normaliza coluna UF se existir
     try:
@@ -2161,11 +3049,6 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
     except Exception:
         pass
 
-    required = ["ID DA TRANSAÇÃO NO MERCADO PAGO", "TIPO DE TRANSAÇÃO", "VALOR LÍQUIDO DA TRANSAÇÃO"]
-    for col in required:
-        if col not in df.columns:
-            raise ValueError(f"Relatório MP fora do padrão esperado: coluna '{col}' não encontrada.")
-
     importadas = 0
     atualizadas = 0
     ignoradas = 0
@@ -2175,7 +3058,7 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
 
     with engine.begin() as conn:
         for _, row in df.iterrows():
-            external_id = row.get("ID DA TRANSAÇÃO NO MERCADO PAGO")
+            external_id = row.get(id_col)
             try:
                 external_id = str(int(external_id)) if external_id == external_id else None
             except Exception:
@@ -2187,12 +3070,12 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
 
             processed_ids.add(external_id)
 
-            tipo_trans = str(row.get("TIPO DE TRANSAÇÃO") or "").strip()
+            tipo_trans = str(row.get(tipo_col) or "").strip()
 
             # valor líquido do MP (entrada real)
-            val = row.get("VALOR LÍQUIDO DA TRANSAÇÃO")
+            val = row.get(valor_col)
             try:
-                valor = float(val) if val == val else 0.0
+                valor = float(str(val).replace(",", ".")) if val == val else 0.0
             except Exception:
                 valor = 0.0
 
@@ -2209,15 +3092,32 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
                 valor = abs(valor)  # garantir positivo para vendas
 
             # data do caixa: preferir liberação
-            dt = _parse_iso_or_none(row.get("DATA DE LIBERAÇÃO DO DINHEIRO"))                  or _parse_iso_or_none(row.get("DATA DE APROVAÇÃO"))                  or _parse_iso_or_none(row.get("DATA DE ORIGEM"))                  or datetime.now()
+            dt = None
+            if data_col:
+                dt = _parse_iso_or_none(row.get(data_col))
+            
+            if not dt:
+                data_aprovacao_col = next((c for c in df.columns if "DATA" in c and ("APROVAÇÃO" in c.upper() or "APROVACAO" in c.upper())), None)
+                if data_aprovacao_col:
+                    dt = _parse_iso_or_none(row.get(data_aprovacao_col))
+            
+            if not dt:
+                data_origem_col = next((c for c in df.columns if "DATA" in c and ("ORIGEM" in c.upper())), None)
+                if data_origem_col:
+                    dt = _parse_iso_or_none(row.get(data_origem_col))
+            
+            if not dt:
+                dt = datetime.now()
 
             data_lancamento = dt.isoformat()
 
-            canal = str(row.get("CANAL DE VENDA") or "").strip()
+            canal_col = next((c for c in df.columns if "CANAL" in c.upper()), None)
+            canal = str(row.get(canal_col) or "").strip() if canal_col else ""
             descricao = f"{tipo_trans} - {canal}".strip(" -")
 
             existing = conn.execute(
-                select(finance_transactions.c.id).where(finance_transactions.c.external_id_mp == external_id)
+                select(finance_transactions.c.id)
+                .where(finance_transactions.c.external_id_mp == external_id)
             ).first()
 
             if existing:
@@ -2252,7 +3152,161 @@ def importar_settlement_mp(caminho_arquivo, engine: Engine):
     return {"lote_id": lote_id, "importadas": importadas, "atualizadas": atualizadas, "ignoradas": ignoradas}
 
 
+def importar_mp_bank_summary(caminho_arquivo, engine: Engine):
+    """
+    Importa resumo bancário/movimento do Mercado Pago com colunas:
+    INITIAL_BALANCE, CREDITS, DEBITS, FINAL_BALANCE
+    """
+    lote_id = datetime.now().isoformat(timespec="seconds")
+
+    try:
+        df = pd.read_excel(caminho_arquivo)
+    except Exception as e:
+        raise ValueError(f"Erro ao ler Excel: {str(e)}")
+
+    # Normaliza nomes das colunas
+    df.columns = [str(c).strip().upper() for c in df.columns]
+
+    print(f"DEBUG Bank Summary: Colunas = {list(df.columns)}")
+    print(f"DEBUG Bank Summary: Dados:\n{df.head(10)}")
+    print(f"DEBUG Bank Summary: Tipos de dados:\n{df.dtypes}")
+    
+    # Remove linhas vazias
+    df = df.dropna(how='all')
+    print(f"DEBUG: Total de linhas após remover vazias: {len(df)}")
+
+    importadas = 0
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    
+    # Limite máximo de valor razoável (1 bilhão de reais - para não descartar valores legítimos)
+    MAX_VALOR_RAZOAVEL = 1_000_000_000.00
+    ignorados_por_tamanho = 0
+
+    with engine.begin() as conn:
+        for idx, row in df.iterrows():
+            try:
+                # Usa o índice da linha como ID único
+                reference_id = f"MP_BANK_{lote_id}_{idx}"
+
+                # Processa CREDITS (entradas)
+                credits = row.get("CREDITS")
+                if pd.notna(credits) and credits != "" and credits != 0:
+                    try:
+                        # Converte para string e limpa
+                        credits_str = str(credits).strip()
+                        
+                        # Ignora valores não numéricos
+                        if credits_str.lower() in ['nan', 'none', '', '-']:
+                            continue
+                        
+                        # Remove caracteres não numéricos (exceto . e -)
+                        credits_str = credits_str.replace(",", ".")
+                        
+                        credits_val = float(credits_str)
+                        
+                        print(f"DEBUG CREDITS linha {idx}: raw={credits}, type={type(credits)}, parsed={credits_val}")
+                        
+                        # Validação: descarta valores absurdamente grandes
+                        if abs(credits_val) > MAX_VALOR_RAZOAVEL:
+                            print(f"⚠️ IGNORADO: CREDITS na linha {idx} muito grande: {credits_val:,.2f}")
+                            ignorados_por_tamanho += 1
+                            continue
+                        
+                        # Validação: descarta valores muito pequenos (pode ser erro)
+                        if abs(credits_val) < 0.01:
+                            continue
+                        
+                        if credits_val > 0:
+                            existing = conn.execute(
+                                select(finance_transactions.c.id)
+                                .where(finance_transactions.c.external_id_mp == f"{reference_id}_CREDITS")
+                            ).first()
+
+                            if not existing:
+                                conn.execute(
+                                    insert(finance_transactions).values(
+                                        data_lancamento=datetime.now().isoformat(),
+                                        valor=credits_val,
+                                        descricao="Crédito Mercado Pago",
+                                        external_id_mp=f"{reference_id}_CREDITS",
+                                        lote_importacao=lote_id,
+                                        origem="mercado_pago",
+                                        tipo="MP_NET",
+                                        criado_em=now_iso,
+                                    )
+                                )
+                                importadas += 1
+                    except Exception as e:
+                        print(f"❌ Erro ao processar CREDITS na linha {idx}: {e}")
+
+                # Processa DEBITS (saídas)
+                debits = row.get("DEBITS")
+                if pd.notna(debits) and debits != "" and debits != 0:
+                    try:
+                        # Converte para string e limpa
+                        debits_str = str(debits).strip()
+                        
+                        # Ignora valores não numéricos
+                        if debits_str.lower() in ['nan', 'none', '', '-']:
+                            continue
+                        
+                        # Remove caracteres não numéricos (exceto . e -)
+                        debits_str = debits_str.replace(",", ".")
+                        
+                        debits_val = float(debits_str)
+                        
+                        print(f"DEBUG DEBITS linha {idx}: raw={debits}, type={type(debits)}, parsed={debits_val}")
+                        
+                        # Validação: descarta valores absurdamente grandes
+                        if abs(debits_val) > MAX_VALOR_RAZOAVEL:
+                            print(f"⚠️ IGNORADO: DEBITS na linha {idx} muito grande: {debits_val:,.2f}")
+                            ignorados_por_tamanho += 1
+                            continue
+                        
+                        # Validação: descarta valores muito pequenos (pode ser erro)
+                        if abs(debits_val) < 0.01:
+                            continue
+                        
+                        if debits_val > 0:
+                            existing = conn.execute(
+                                select(finance_transactions.c.id)
+                                .where(finance_transactions.c.external_id_mp == f"{reference_id}_DEBITS")
+                            ).first()
+
+                            if not existing:
+                                conn.execute(
+                                    insert(finance_transactions).values(
+                                        data_lancamento=datetime.now().isoformat(),
+                                        valor=-debits_val,
+                                        descricao="Débito Mercado Pago",
+                                        external_id_mp=f"{reference_id}_DEBITS",
+                                        lote_importacao=lote_id,
+                                        origem="mercado_pago",
+                                        tipo="WITHDRAWAL",
+                                        criado_em=now_iso,
+                                    )
+                                )
+                                importadas += 1
+                    except Exception as e:
+                        print(f"❌ Erro ao processar DEBITS na linha {idx}: {e}")
+
+            except Exception as e:
+                print(f"❌ Erro ao processar linha {idx}: {str(e)}")
+                ignoradas += 1
+                continue
+
+    print(f"✅ Resumo: {importadas} importados, {ignorados_por_tamanho} ignorados por tamanho")
+    
+    return {
+        "lote_id": lote_id,
+        "importadas": importadas,
+        "atualizadas": 0,
+        "ignoradas": ignorados_por_tamanho,
+    }
+
+
 @app.route("/importar_mp", methods=["GET", "POST"])
+@login_required
 def importar_mp_view():
     if request.method == "POST":
         if "arquivo" not in request.files:
@@ -2297,6 +3351,183 @@ def importar_mp_view():
     return render_template("importar_mp.html", lotes_mp=lotes_mp)
 
 
+@app.route("/importar_mp_full", methods=["GET", "POST"])
+@login_required
+def importar_mp_full_view():
+    """Importa planilha do Mercado Pago com colunas: RELEASE_DATE, TRANSACTION_TYPE, REFERENCE_ID, TRANSACTION_NET_AMOUNT, PARTIAL_BALANCE"""
+    if request.method == "POST":
+        if "arquivo" not in request.files:
+            flash("Nenhum arquivo enviado.", "danger")
+            return redirect(request.url)
+        file = request.files["arquivo"]
+        if file.filename == "":
+            flash("Selecione um arquivo.", "danger")
+            return redirect(request.url)
+
+        filename = secure_filename(file.filename)
+        caminho = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        file.save(caminho)
+
+        try:
+            resultado = importar_mp_full_excel(caminho, engine)
+            flash(
+                f"✅ Importação MP Full concluída! Lote {resultado['lote_id']}",
+                "success",
+            )
+            return redirect(url_for("relatorio_mp_full", lote_id=resultado['lote_id']))
+        except Exception as e:
+            flash(f"❌ Erro na importação: {str(e)}", "danger")
+            return redirect(request.url)
+
+    return render_template("importar_mp_full.html")
+
+
+@app.route("/relatorio_mp_full/<lote_id>")
+@login_required
+def relatorio_mp_full(lote_id):
+    """Exibe relatório de importação MP Full com totais por TRANSACTION_TYPE"""
+    with engine.connect() as conn:
+        # Busca todas as transações do lote
+        transacoes = conn.execute(
+            select(
+                finance_transactions.c.descricao,
+                func.count().label("qtd"),
+                func.sum(finance_transactions.c.valor).label("total_valor"),
+            )
+            .where(finance_transactions.c.lote_importacao == lote_id)
+            .where(finance_transactions.c.origem == "mercado_pago")
+            .group_by(finance_transactions.c.descricao)
+            .order_by(func.sum(finance_transactions.c.valor).desc())
+        ).mappings().all()
+
+        resumo_geral = conn.execute(
+            select(
+                func.count().label("total_registros"),
+                func.sum(finance_transactions.c.valor).label("total_geral"),
+            )
+            .where(finance_transactions.c.lote_importacao == lote_id)
+            .where(finance_transactions.c.origem == "mercado_pago")
+        ).mappings().first()
+
+    return render_template("relatorio_mp_full.html", transacoes=transacoes, resumo=resumo_geral, lote_id=lote_id)
+
+
+def importar_mp_full_excel(caminho_arquivo, engine: Engine):
+    """
+    Importa planilha do Mercado Pago Full com colunas:
+    RELEASE_DATE, TRANSACTION_TYPE, REFERENCE_ID, TRANSACTION_NET_AMOUNT, PARTIAL_BALANCE
+    """
+    lote_id = datetime.now().isoformat(timespec="seconds")
+
+    try:
+        df = pd.read_excel(caminho_arquivo)
+    except Exception as e:
+        raise ValueError(f"Erro ao ler Excel: {str(e)}")
+
+    # Normaliza nomes das colunas
+    df.columns = [str(c).strip().upper() for c in df.columns]
+
+    # Validação de colunas obrigatórias
+    required_cols = ["RELEASE_DATE", "TRANSACTION_TYPE", "REFERENCE_ID", "TRANSACTION_NET_AMOUNT", "PARTIAL_BALANCE"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Colunas obrigatórias não encontradas: {', '.join(missing)}")
+
+    importadas = 0
+    atualizadas = 0
+    ignoradas = 0
+    processed_ids = set()
+    now_iso = datetime.now().isoformat(timespec="seconds")
+
+    with engine.begin() as conn:
+        for idx, row in df.iterrows():
+            try:
+                reference_id = str(row.get("REFERENCE_ID", "")).strip()
+                if not reference_id or reference_id in processed_ids:
+                    ignoradas += 1
+                    continue
+
+                processed_ids.add(reference_id)
+
+                # Extrai dados
+                transaction_type = str(row.get("TRANSACTION_TYPE", "")).strip()
+                
+                # Converte valor para float
+                try:
+                    valor = float(str(row.get("TRANSACTION_NET_AMOUNT", "0")).replace(",", "."))
+                except:
+                    valor = 0.0
+
+                # Data de lançamento
+                release_date = row.get("RELEASE_DATE")
+                if pd.notna(release_date):
+                    try:
+                        if isinstance(release_date, str):
+                            data_lancamento = pd.to_datetime(release_date).isoformat()
+                        else:
+                            data_lancamento = pd.Timestamp(release_date).isoformat()
+                    except:
+                        data_lancamento = datetime.now().isoformat()
+                else:
+                    data_lancamento = datetime.now().isoformat()
+
+                # Saldo parcial
+                partial_balance = row.get("PARTIAL_BALANCE", 0.0)
+                try:
+                    partial_balance = float(str(partial_balance).replace(",", ".")) if pd.notna(partial_balance) else 0.0
+                except:
+                    partial_balance = 0.0
+
+                # Descrição
+                descricao = f"{transaction_type} ({reference_id})"
+
+                # Verifica se já existe
+                existing = conn.execute(
+                    select(finance_transactions.c.id)
+                    .where(finance_transactions.c.external_id_mp == reference_id)
+                ).first()
+
+                if existing:
+                    conn.execute(
+                        update(finance_transactions)
+                        .where(finance_transactions.c.external_id_mp == reference_id)
+                        .values(
+                            data_lancamento=data_lancamento,
+                            valor=valor,
+                            descricao=descricao,
+                            lote_importacao=lote_id,
+                            origem="mercado_pago",
+                        )
+                    )
+                    atualizadas += 1
+                else:
+                    conn.execute(
+                        insert(finance_transactions).values(
+                            data_lancamento=data_lancamento,
+                            valor=valor,
+                            descricao=descricao,
+                            external_id_mp=reference_id,
+                            lote_importacao=lote_id,
+                            origem="mercado_pago",
+                            tipo="MP_NET",
+                            criado_em=now_iso,
+                        )
+                    )
+                    importadas += 1
+
+            except Exception as e:
+                print(f"Erro ao processar linha {idx}: {str(e)}")
+                ignoradas += 1
+                continue
+
+    return {
+        "lote_id": lote_id,
+        "importadas": importadas,
+        "atualizadas": atualizadas,
+        "ignoradas": ignoradas,
+    }
+
+
 def _date_only(iso_str: str):
     try:
         return iso_str[:10]
@@ -2305,6 +3536,7 @@ def _date_only(iso_str: str):
 
 
 @app.route("/financeiro", methods=["GET", "POST"])
+@login_required
 def financeiro_view():
     # Ações (saldo inicial, devolução, retirada)
     if request.method == "POST":
@@ -2388,6 +3620,7 @@ def financeiro_view():
 
     with engine.connect() as conn:
         # saldo antes do período (para abrir o saldo do período)
+        # saldo antes do período (para abrir o saldo do período)
         saldo_anterior = conn.execute(
             select(func.coalesce(func.sum(finance_transactions.c.valor), 0.0))
             .where(finance_transactions.c.data_lancamento < data_inicio)
@@ -2460,6 +3693,7 @@ def financeiro_view():
 
 
 @app.route("/excluir_lote/<path:lote>", methods=["POST"])
+@login_required
 def excluir_lote_financeiro(lote):
     print("Excluindo lote:", lote)
     with engine.begin() as conn:
@@ -2476,6 +3710,7 @@ def excluir_lote_financeiro(lote):
 
 
 @app.route("/conciliacao", methods=["GET"])
+@login_required
 def conciliacao_view():
     data_inicio = request.args.get("data_inicio") or (date.today().replace(day=1)).isoformat()
     data_fim = request.args.get("data_fim") or date.today().isoformat()
@@ -2918,6 +4153,238 @@ def processar_vendas_sem_produto():
         flash(f"❌ Erro ao processar: {e}", "danger")
     
     return redirect(url_for("criar_produtos_de_vendas"))
+
+
+
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+
+@app.route("/admin/usuario/<int:usuario_id>/toggle", methods=["POST"])
+@login_required
+def admin_usuario_toggle(usuario_id):
+    """Ativar/Desativar usuário"""
+    user = current_user
+    with engine.connect() as conn:
+        usuario_atual = conn.execute(
+            select(usuarios).where(usuarios.c.id == user.id)
+        ).mappings().first()
+        
+        if not usuario_atual or usuario_atual.get("papel") != "admin":
+            flash("❌ Acesso negado.", "danger")
+            return redirect(url_for("dashboard"))
+        
+        # Obter estado atual
+        usuario = conn.execute(
+            select(usuarios).where(usuarios.c.id == usuario_id)
+        ).mappings().first()
+        
+        if not usuario:
+            flash("❌ Usuário não encontrado.", "danger")
+            return redirect(url_for("admin_usuarios"))
+        
+        novo_estado = not usuario.get("ativo", True)
+        
+        with engine.begin() as conn2:
+            conn2.execute(
+                update(usuarios)
+                .where(usuarios.c.id == usuario_id)
+                .values(ativo=novo_estado)
+            )
+        
+        status = "ativado" if novo_estado else "desativado"
+        flash(f"✅ Usuário {status} com sucesso!", "success")
+    
+    return redirect(url_for("admin_usuarios"))
+
+
+# ---- ALERTAS DO SISTEMA ----
+@app.route("/alertas")
+@login_required
+def alertas_sistema():
+    """Mostrar alertas do sistema"""
+    with engine.connect() as conn:
+        # Produtos com estoque baixo (< 5)
+        estoque_baixo = conn.execute(
+            select(produtos.c.nome, produtos.c.sku, produtos.c.estoque_atual)
+            .where(produtos.c.estoque_atual < 5)
+            .order_by(produtos.c.estoque_atual.asc())
+        ).fetchall()
+        
+        # Contar vendas sem produto
+        vendas_sem_produto = conn.execute(
+            select(func.count())
+            .select_from(vendas)
+            .where(vendas.c.produto_id == None)
+        ).scalar() or 0
+        
+        # Produtos não vendidos há 30 dias
+        data_limite = (date.today() - timedelta(days=30)).isoformat()
+        produtos_parados = conn.execute(
+            select(
+                produtos.c.nome,
+                produtos.c.estoque_atual
+            )
+            .where(~produtos.c.id.in_(
+                select(vendas.c.produto_id)
+                .where(vendas.c.data_venda >= data_limite)
+                .distinct()
+            ))
+            .order_by(produtos.c.estoque_atual.desc())
+            .limit(5)
+        ).fetchall()
+        
+        # Top 5 produtos mais vendidos
+        top_produtos = conn.execute(
+            select(
+                produtos.c.nome,
+                func.count(vendas.c.id).label("qtd")
+            )
+            .select_from(vendas.join(produtos))
+            .group_by(produtos.c.id)
+            .order_by(func.count(vendas.c.id).desc())
+            .limit(5)
+        ).fetchall()
+    
+    return render_template(
+        "alertas_sistema.html",
+        estoque_baixo=estoque_baixo,
+        vendas_sem_produto=vendas_sem_produto,
+        produtos_parados=produtos_parados,
+        top_produtos=top_produtos
+    )
+
+def gerar_export_render():
+    """Gera um ZIP com CSVs das principais tabelas para migração/restauração no Render."""
+    tabelas = [
+        ("usuarios", usuarios),
+        ("configuracoes", configuracoes),
+        ("produtos", produtos),
+        ("ajustes_estoque", ajustes_estoque),
+        ("vendas", vendas),
+        ("finance_transactions", finance_transactions),
+    ]
+
+    manifest = []
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        with engine.connect() as conn:
+            for nome, tabela in tabelas:
+                df = pd.read_sql(select(tabela), conn)
+                manifest.append({"nome": nome, "linhas": int(len(df)), "colunas": list(df.columns)})
+                zf.writestr(f"{nome}.csv", df.to_csv(index=False).encode("utf-8"))
+
+        zf.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "gerado_em": datetime.utcnow().isoformat() + "Z",
+                    "origem": "postgres" if raw_db_url else "sqlite",
+                    "tabelas": manifest,
+                    "observacao": "Use import_render_backup.py para restaurar no Render/Postgres.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ).encode("utf-8"),
+        )
+
+    buffer.seek(0)
+    filename = f"metrifiy_render_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return buffer, filename
+
+
+
+## IMPORTA ROTAS DE BACKUP EXTERNAS (novas_rotas.py)
+# Removido para evitar conflitos de endpoint duplicado
+
+
+# ---------------- TRANSFERÊNCIA DE ESTOQUE ENTRE MODALIDADES (ROTA) ----------------
+@app.route("/estoque/transferir", methods=["GET", "POST"])
+@login_required
+def transferir_estoque():
+    with engine.connect() as conn:
+        produtos_rows = conn.execute(
+            select(
+                produtos.c.id,
+                produtos.c.nome,
+                produtos.c.sku
+            ).order_by(produtos.c.nome)
+        ).mappings().all()
+
+    if request.method == "POST":
+        produto_id = int(request.form.get("produto_id"))
+        origem = request.form.get("origem")
+        destino = request.form.get("destino")
+        quantidade = int(request.form.get("quantidade", 0) or 0)
+
+        if origem == destino:
+            flash("Selecione modalidades diferentes para transferir.", "warning")
+            return render_template("transferir_estoque.html", produtos=produtos_rows)
+
+        with engine.begin() as conn:
+            prod = conn.execute(
+                select(
+                    produtos.c.estoque_atual,
+                    produtos.c.estoque_full,
+                    produtos.c.estoque_flex
+                ).where(produtos.c.id == produto_id)
+            ).mappings().first()
+
+            if not prod:
+                flash("Produto não encontrado.", "danger")
+                return render_template("transferir_estoque.html", produtos=produtos_rows)
+
+            campos = {
+                "estoque_atual": float(prod.get("estoque_atual") or 0),
+                "estoque_full": float(prod.get("estoque_full") or 0),
+                "estoque_flex": float(prod.get("estoque_flex") or 0),
+            }
+
+            if campos.get(origem, 0) < quantidade:
+                flash("Estoque insuficiente na modalidade de origem.", "danger")
+                return render_template("transferir_estoque.html", produtos=produtos_rows)
+
+            campos[origem] = campos.get(origem, 0) - quantidade
+            campos[destino] = campos.get(destino, 0) + quantidade
+
+            conn.execute(
+                update(produtos)
+                .where(produtos.c.id == produto_id)
+                .values(
+                    estoque_atual=campos["estoque_atual"],
+                    estoque_full=campos["estoque_full"],
+                    estoque_flex=campos["estoque_flex"]
+                )
+            )
+
+        flash("Transferência realizada com sucesso!", "success")
+        return redirect(url_for("estoque_view"))
+
+    return render_template("transferir_estoque.html", produtos=produtos_rows)
+
+# Ensure critical admin routes exist to avoid template `url_for` failures
+if 'admin_backup' not in app.view_functions:
+
+    @app.route("/admin/backup", methods=["GET", "POST"])
+    @login_required
+    def admin_backup():
+        # Fallback minimal page if `novas_rotas` failed to register the full handler.
+        # Try to load the real handler on-demand.
+        try:
+            import importlib
+            nr = importlib.import_module('novas_rotas')
+            if hasattr(nr, 'admin_backup'):
+                return nr.admin_backup()
+        except Exception:
+            pass
+
+        # Render a simple notice so templates can build the URL without crashing.
+        return render_template('admin_backup.html', backups=[])
+
+    print(f"[DIAG] admin_backup registered: {'admin_backup' in app.view_functions}")
+
+
 
 
 

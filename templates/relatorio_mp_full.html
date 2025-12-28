@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Relatório MP Full - Mega ERP{% endblock %}
+
+{% block page_icon %}<i class="bi bi-graph-up text-success"></i>{% endblock %}
+{% block page_title %}Relatório de Importação Mercado Pago Full{% endblock %}
+
+{% block content %}
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card-glass bg-primary-soft border-left-primary mb-4">
+      <div class="card-glass-title text-primary">
+        <i class="bi bi-calculator-fill"></i>
+        Total Geral
+      </div>
+      <div style="font-size: 28px; font-weight: 700; color: var(--primary); margin-top: 1rem;">
+        R$ {{ "%.2f"|format(resumo.total_geral or 0) }}
+      </div>
+      <div class="text-muted" style="font-size: 12px; margin-top: 0.5rem;">
+        {{ resumo.total_registros or 0 }} registros importados
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card-glass bg-info-soft border-left-info mb-4">
+      <div class="card-glass-title text-info">
+        <i class="bi bi-calendar-event"></i>
+        Lote de Importação
+      </div>
+      <div style="font-size: 16px; font-weight: 600; color: var(--info); margin-top: 1rem; word-break: break-all;">
+        {{ lote_id }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabela de Totais por Tipo de Transação -->
+<div class="card-glass">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-table"></i>
+      Totais por Tipo de Transação (TRANSACTION_TYPE)
+    </div>
+  </div>
+
+  {% if transacoes %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width: 50%;">Tipo de Transação</th>
+            <th style="text-align: right; width: 25%;">Quantidade</th>
+            <th style="text-align: right; width: 25%;">Valor Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for transacao in transacoes %}
+            <tr class="{% if transacao.total_valor > 0 %}table-light{% else %}table-danger{% endif %}">
+              <td>
+                <i class="bi bi-dash-circle {% if transacao.total_valor > 0 %}text-success{% else %}text-danger{% endif %}"></i>
+                {{ transacao.descricao }}
+              </td>
+              <td style="text-align: right; color: var(--muted); font-weight: 600;">
+                {{ transacao.qtd }}
+              </td>
+              <td style="text-align: right; font-weight: 700; color: {% if transacao.total_valor > 0 %}var(--success){% else %}var(--danger){% endif %};">
+                R$ {{ "%.2f"|format(transacao.total_valor or 0) }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="border-top: 2px solid var(--border); background: rgba(37, 99, 235, 0.04);">
+            <td colspan="1" style="font-weight: 700; color: var(--heading);">TOTAL</td>
+            <td style="text-align: right; font-weight: 700; color: var(--heading);">
+              {{ resumo.total_registros or 0 }}
+            </td>
+            <td style="text-align: right; font-weight: 700; font-size: 16px; color: var(--primary);">
+              R$ {{ "%.2f"|format(resumo.total_geral or 0) }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">
+      <i class="bi bi-info-circle"></i>
+      Nenhuma transação foi importada para este lote.
+    </div>
+  {% endif %}
+</div>
+
+<!-- Ações -->
+<div class="mt-4 d-flex gap-2 justify-content-between">
+  <a href="{{ url_for('financeiro_view') }}" class="btn btn-outline-light">
+    <i class="bi bi-arrow-left"></i> Voltar ao Financeiro
+  </a>
+  <a href="{{ url_for('importar_mp_full_view') }}" class="btn btn-primary">
+    <i class="bi bi-cloud-upload"></i> Importar Outro Arquivo
+  </a>
+</div>
+
+<!-- Detalhes de Importação -->
+<div class="card-glass mt-4">
+  <div class="card-glass-header">
+    <div class="card-glass-title">
+      <i class="bi bi-file-earmark-check"></i>
+      Detalhes da Importação
+    </div>
+  </div>
+  
+  <div class="row mt-3">
+    <div class="col-md-4">
+      <div style="padding: 1rem; background: rgba(22, 163, 74, 0.08); border-radius: 0.9rem; border-left: 3px solid var(--success);">
+        <div style="color: var(--muted); font-size: 12px; font-weight: 600;">REGISTROS IMPORTADOS</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--success); margin-top: 0.5rem;">
+          {{ resumo.total_registros or 0 }}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div style="padding: 1rem; background: rgba(37, 99, 235, 0.08); border-radius: 0.9rem; border-left: 3px solid var(--primary);">
+        <div style="color: var(--muted); font-size: 12px; font-weight: 600;">VALOR TOTAL</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--primary); margin-top: 0.5rem;">
+          R$ {{ "%.2f"|format(resumo.total_geral or 0) }}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div style="padding: 1rem; background: rgba(168, 85, 247, 0.08); border-radius: 0.9rem; border-left: 3px solid var(--purple);">
+        <div style="color: var(--muted); font-size: 12px; font-weight: 600;">TIPOS DE TRANSAÇÃO</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--purple); margin-top: 0.5rem;">
+          {{ transacoes|length }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

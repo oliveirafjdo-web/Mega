@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+                <h1 class="mb-0"><i class="bi bi-cloud-upload"></i> Backup e Restore</h1>
+                <div class="d-flex flex-wrap gap-2">
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="action" value="render_export">
+                        <button type="submit" class="btn btn-outline-secondary">
+                            <i class="bi bi-cloud-arrow-down me-2"></i>Exportar pacote Render (ZIP)
+                        </button>
+                    </form>
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="action" value="sqlite_backup">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-cloud-upload me-2"></i>Fazer Backup SQLite
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Alert sobre backups -->
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Dica:</strong> Use <code>Exportar pacote Render</code> para gerar um ZIP com CSVs e <code>import_render_backup.py</code> no Render/Postgres.
+            </div>
+
+            <!-- Restauração SQLite local -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Restaurar backup (SQLite local)</h5>
+                    <span class="badge text-bg-secondary">Somente ambiente local</span>
+                </div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data" class="row g-3">
+                        <input type="hidden" name="action" value="sqlite_restore">
+                        <div class="col-md-8">
+                            <label class="form-label">Arquivo .db</label>
+                            <input class="form-control" type="file" name="backup_file" accept=".db" required>
+                            <small class="text-muted">O banco atual será salvo como backup antes de sobrescrever.</small>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="submit" class="btn btn-danger w-100">
+                                <i class="bi bi-arrow-counterclockwise me-2"></i>Restaurar banco
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Lista de backups -->
+            {% if backups %}
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">Backups Disponíveis ({{ backups|length }})</h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Arquivo</th>
+                                <th>Tamanho</th>
+                                <th>Data</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for backup in backups %}
+                            <tr>
+                                <td>
+                                    <i class="bi bi-cloud-check me-2"></i>
+                                    <code>{{ backup.nome }}</code>
+                                </td>
+                                <td>{{ backup.tamanho }}</td>
+                                <td>
+                                    <small class="text-muted">
+                                        {{ backup.criado|strftime('%d/%m/%Y %H:%M:%S') if backup.criado else 'N/A' }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <a href="/admin/backup/{{ backup.nome }}/download" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-download me-1"></i> Download
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                <strong>Nenhum backup encontrado.</strong> Clique em "Fazer Backup Agora" para criar o primeiro.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Filtro de data customizado -->
+<script>
+// Adicionar filtro de data no strftime do Jinja2
+</script>
+{% endblock %}

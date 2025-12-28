@@ -1,14 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Relatório de Lucro - Metrify{% endblock %}
+{% block title %}Relatório de Lucro - Mega ERP{% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4">
 
-    <!-- Cabeçalho + filtro -->
+    <!-- Cabeçalho -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <h1 class="h3 mb-1">Relatório de Lucro</h1>
+            <h1 class="h3 mb-1">
+                <i class="bi bi-graph-up-arrow text-primary me-2"></i>
+                Relatório de Lucro
+            </h1>
             <p class="text-muted mb-0">
                 Visão consolidada de receita, custos, comissões, impostos, despesas e lucro líquido por produto.
             </p>
@@ -23,27 +26,77 @@
                                 data_inicio=data_inicio,
                                 data_fim=data_fim) }}"
                class="btn btn-success">
-                <i class="bi bi-file-earmark-spreadsheet"></i> Exportar Planilha
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> Exportar Planilha
             </a>
         </div>
     </div>
 
-    <!-- Filtro de período -->
-    <form class="row g-3 mb-4" method="GET">
-        <div class="col-md-3">
-            <label class="form-label">Data início</label>
-            <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
+    <!-- Filtro de período com botões rápidos - Sticky -->
+    <div class="card shadow-sm mb-4 sticky-top" style="top: 70px; z-index: 1020; background: white;">
+        <div class="card-body">
+            <form class="row g-3" method="GET" id="formPeriodo">
+                <div class="col-12">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(0)">
+                            <i class="bi bi-calendar-day me-1"></i> Hoje
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(7)">
+                            <i class="bi bi-calendar-week me-1"></i> 7 dias
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(30)">
+                            <i class="bi bi-calendar-month me-1"></i> 30 dias
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setCurrentMonth()">
+                            <i class="bi bi-calendar-check me-1"></i> Este mês
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setLastMonth()">
+                            <i class="bi bi-calendar me-1"></i> Mês anterior
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Data início</label>
+                    <input type="date" name="data_inicio" id="data_inicio" class="form-control" value="{{ data_inicio }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Data fim</label>
+                    <input type="date" name="data_fim" id="data_fim" class="form-control" value="{{ data_fim }}">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-funnel me-1"></i> Filtrar
+                    </button>
+                </div>
+            </form>
+            <small class="text-muted mt-2 d-block">
+                Período atual: 
+                {% if data_inicio %}{{ data_inicio }}{% else %}-{% endif %}
+                 até 
+                {% if data_fim %}{{ data_fim }}{% else %}-{% endif %}
+            </small>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">Data fim</label>
-            <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
-        </div>
-        <div class="col-md-3 d-flex align-items-end">
-            <button class="btn btn-primary w-100">Filtrar</button>
-        </div>
-    </form>
+    </div>
 
     <!-- Tabela principal -->
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <small class="text-muted">Edite o valor de publicidade individualmente para cada produto abaixo.</small>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted d-block">Total Publicidade</small>
+                        <div class="h5 mb-0">R$ {{ '%.2f'|format(totais.publicidade or 0) }}</div>
+                    </div>
+                    <div class="text-end">
+                        <small class="text-muted d-block">Lucro Líq.</small>
+                        <div class="h5 mb-0">R$ {{ '%.2f'|format(totais.margem_liquida or 0) }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="card shadow-sm border-0">
         <div class="table-responsive">
             <table class="table align-middle mb-0 table-hover">
@@ -53,10 +106,15 @@
                         <th class="text-end">Qtd</th>
                         <th class="text-end">Receita (R$)</th>
                         <th class="text-end">Custo (R$)</th>
+                        <th class="text-end">Custo/Un. (R$)</th>
                         <th class="text-end">Comissão ML (R$)</th>
+                        <th class="text-end">Comissão/Un. (R$)</th>
+                        <th class="text-end">Rec. Líq./Un. (R$)</th>
                         <th class="text-end">Imposto (R$)</th>
                         <th class="text-end">Despesas (R$)</th>
+                        <th class="text-end">Publicidade (R$)</th>
                         <th class="text-end">Lucro líquido (R$)</th>
+                        <th class="text-end">Lucro Líq./Un. (R$)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -66,11 +124,33 @@
                             <td class="text-end">{{ linha.qtd|int }}</td>
                             <td class="text-end">R$ {{ '%.2f'|format(linha.receita or 0) }}</td>
                             <td class="text-end">R$ {{ '%.2f'|format(linha.custo or 0) }}</td>
+                            <td class="text-end text-danger">R$ {{ '%.2f'|format(linha.custo_unit or 0) }}</td>
                             <td class="text-end">R$ {{ '%.2f'|format(linha.comissao or 0) }}</td>
+                            <td class="text-end text-warning">R$ {{ '%.2f'|format(linha.comissao_unit or 0) }}</td>
+                            <td class="text-end text-info fw-semibold">R$ {{ '%.2f'|format(linha.receita_liquida_unit or 0) }}</td>
                             <td class="text-end">R$ {{ '%.2f'|format(linha.imposto or 0) }}</td>
                             <td class="text-end">R$ {{ '%.2f'|format(linha.despesas or 0) }}</td>
-                            <td class="text-end fw-semibold">
-                                R$ {{ '%.2f'|format(linha.margem_liquida or 0) }}
+                            <td class="text-end">R$ {{ '%.2f'|format(linha.publicidade or 0) }}</td>
+                            <td class="text-end fw-semibold">R$ {{ '%.2f'|format(linha.margem_liquida or 0) }}</td>
+                            <td class="text-end text-success fw-bold">R$ {{ '%.2f'|format(linha.lucro_unit or 0) }}</td>
+                        </tr>
+                        <tr class="pub-form-row d-none" id="pub-form-{{ linha.produto_id }}">
+                            <td colspan="13">
+                                <form action="{{ url_for('relatorio_lucro_publicidade_produto') }}" method="POST" class="row g-2 align-items-center">
+                                    <input type="hidden" name="produto_id" value="{{ linha.produto_id }}">
+                                    <div class="col-auto">
+                                        <label class="form-label mb-0">Publicidade (R$):</label>
+                                    </div>
+                                    <div class="col-auto">
+                                        <input type="number" step="0.01" name="publicidade" class="form-control form-control-sm" value="{{ '%.2f'|format(linha.publicidade or 0) }}" style="width: 120px;">
+                                    </div>
+                                    <div class="col-auto">
+                                        <button type="submit" class="btn btn-sm btn-primary">Salvar</button>
+                                    </div>
+                                    <div class="col-auto ms-2">
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="togglePubForm({{ linha.produto_id }})">Cancelar</button>
+                                    </div>
+                                </form>
                             </td>
                         </tr>
                     {% endfor %}
@@ -81,10 +161,15 @@
                         <td class="text-end">{{ totais.qtd|int }}</td>
                         <td class="text-end">R$ {{ '%.2f'|format(totais.receita or 0) }}</td>
                         <td class="text-end">R$ {{ '%.2f'|format(totais.custo or 0) }}</td>
+                        <td class="text-end">-</td>
                         <td class="text-end">R$ {{ '%.2f'|format(totais.comissao or 0) }}</td>
+                        <td class="text-end">-</td>
+                        <td class="text-end">-</td>
                         <td class="text-end">R$ {{ '%.2f'|format(totais.imposto or 0) }}</td>
                         <td class="text-end">R$ {{ '%.2f'|format(totais.despesas or 0) }}</td>
+                        <td class="text-end">R$ {{ '%.2f'|format(totais.publicidade or 0) }}</td>
                         <td class="text-end">R$ {{ '%.2f'|format(totais.margem_liquida or 0) }}</td>
+                        <td class="text-end">-</td>
                     </tr>
                 </tfoot>
             </table>
@@ -92,4 +177,73 @@
     </div>
 
 </div>
+
+<script>
+// Funções de período rápido
+function setQuickPeriod(days) {
+    const hoje = new Date();
+    const dataFim = hoje.toISOString().split('T')[0];
+    
+    let dataInicio;
+    if (days === 0) {
+        dataInicio = dataFim;
+    } else {
+        const inicio = new Date();
+        inicio.setDate(inicio.getDate() - days);
+        dataInicio = inicio.toISOString().split('T')[0];
+    }
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+
+function setCurrentMonth() {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    
+    const dataInicio = `${ano}-${mes}-01`;
+    const dataFim = hoje.toISOString().split('T')[0];
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+
+function setLastMonth() {
+    const hoje = new Date();
+    const primeiroDiaEstemês = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const ultimoDiaMesAnterior = new Date(primeiroDiaEstemês.getTime() - 1);
+    const primeiroDiaMesAnterior = new Date(ultimoDiaMesAnterior.getFullYear(), ultimoDiaMesAnterior.getMonth(), 1);
+    
+    const dataInicio = primeiroDiaMesAnterior.toISOString().split('T')[0];
+    const dataFim = ultimoDiaMesAnterior.toISOString().split('T')[0];
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+</script>
+
+<script>
+function togglePubForm(id) {
+    const row = document.getElementById('pub-form-' + id);
+    if (!row) return;
+    row.classList.toggle('d-none');
+}
+
+// Attach toggle on row click (show form)
+document.addEventListener('click', function(e){
+    const tr = e.target.closest('tr');
+    if (!tr) return;
+    // ignore clicks on buttons/inputs
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'A') return;
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('pub-form-row')) {
+        next.classList.toggle('d-none');
+    }
+});
+</script>
+
 {% endblock %}

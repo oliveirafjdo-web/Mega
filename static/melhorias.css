@@ -1,0 +1,115 @@
+/* Dark Mode */
+:root {
+    --color-bg-light: #ffffff;
+    --color-bg-dark: #1e1e1e;
+    --color-text-light: #000000;
+    --color-text-dark: #ffffff;
+    --color-border-light: #e0e0e0;
+    --color-border-dark: #404040;
+}
+
+body.dark-mode {
+    background-color: var(--color-bg-dark);
+    color: var(--color-text-dark);
+}
+
+body.dark-mode .card {
+    background-color: #2d2d2d;
+    border-color: var(--color-border-dark);
+}
+
+body.dark-mode .table {
+    color: var(--color-text-dark);
+}
+
+body.dark-mode .table-light {
+    background-color: #3d3d3d !important;
+}
+
+body.dark-mode .form-control,
+body.dark-mode .form-select {
+    background-color: #3d3d3d;
+    color: var(--color-text-dark);
+    border-color: var(--color-border-dark);
+}
+
+body.dark-mode .navbar {
+    background-color: #1a1a1a !important;
+    border-bottom: 1px solid var(--color-border-dark);
+}
+
+body.dark-mode .btn-secondary {
+    background-color: #3d3d3d;
+    border-color: #404040;
+}
+
+/* Melhorias Mobile */
+@media (max-width: 768px) {
+    .navbar-brand {
+        font-size: 1rem;
+    }
+    
+    .table {
+        font-size: 0.875rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+    
+    .card {
+        margin-bottom: 1rem;
+    }
+}
+
+/* Atalhos de Teclado */
+.tooltip-shortcut {
+    font-size: 0.75rem;
+    background-color: #555;
+    color: white;
+    padding: 2px 4px;
+    border-radius: 3px;
+    margin-left: 5px;
+}
+
+/* Animações Suaves */
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Cards de Status */
+.status-card {
+    border-left: 4px solid #3498db;
+    transition: all 0.3s ease;
+}
+
+.status-card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+/* Badges Animadas */
+.badge-pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}

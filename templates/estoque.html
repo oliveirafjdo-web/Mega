@@ -87,23 +87,38 @@
 
         <input id="filtroBusca"
                type="text"
-               placeholder="Filtrar por nome ou SKU..."
+               placeholder="🔍 Filtrar por nome ou SKU..."
                class="input input-bordered w-full md:w-80"
                onkeyup="filtrarTabela()">
 
         <div class="flex flex-wrap gap-2">
-            <button class="btn btn-sm" onclick="filtrarStatus('todos')">Todos</button>
-            <button class="btn btn-sm btn-success" onclick="filtrarStatus('ok')">OK</button>
-            <button class="btn btn-sm btn-warning" onclick="filtrarStatus('repor')">Repor</button>
-            <button class="btn btn-sm btn-error" onclick="filtrarStatus('sem')">Sem estoque</button>
-            <button class="btn btn-sm btn-info" onclick="filtrarSugestaoMes()">Sugestão mês</button>
+            <button class="btn btn-sm btn-outline" onclick="filtrarStatus('todos')">
+                📋 Todos
+            </button>
+            <button class="btn btn-sm btn-success" onclick="filtrarStatus('ok')">
+                ✅ OK
+            </button>
+            <button class="btn btn-sm btn-warning" onclick="filtrarStatus('repor')">
+                ⚠️ Repor
+            </button>
+            <button class="btn btn-sm btn-error" onclick="filtrarStatus('sem')">
+                ❌ Sem estoque
+            </button>
+            <button class="btn btn-sm btn-info" onclick="filtrarSugestaoMes()">
+                📊 Sugestão mês
+            </button>
         </div>
 
     </div>
 
-    <!-- ===================== BOTÃO AJUSTAR ESTOQUE ===================== -->
-    <div class="mb-4">
-        <a href="/estoque/ajuste" class="btn btn-warning btn-lg">Ajustar estoque</a>
+    <!-- ===================== BOTÕES DE AÇÃO ===================== -->
+    <div class="mb-4 flex gap-2">
+        <a href="/estoque/ajuste" class="btn btn-warning">
+            ⚙️ Ajustar Estoque
+        </a>
+        <a href="/estoque/transferir" class="btn btn-primary">
+            🔄 Transferir Estoque
+        </a>
     </div>
 
     <!-- ===================== TABELA ===================== -->
@@ -114,7 +129,9 @@
                 <tr>
                     <th class="px-3 py-2 text-left sort" data-col="nome">Produto ⬍</th>
                     <th class="px-3 py-2 text-left sort" data-col="sku">SKU ⬍</th>
-                    <th class="px-3 py-2 text-right sort" data-col="estoque">Estoque ⬍</th>
+                    <th class="px-3 py-2 text-right sort" data-col="estoque">Estoque Geral ⬍</th>
+                    <th class="px-3 py-2 text-right">Estoque Full</th>
+                    <th class="px-3 py-2 text-right">Estoque Flex</th>
                     <th class="px-3 py-2 text-right sort" data-col="sugestao_mes">Sugestão mês ⬍</th>
                     <th class="px-3 py-2 text-right">Custo unit.</th>
                     <th class="px-3 py-2 text-right">Custo total</th>
@@ -132,6 +149,8 @@
                 {% set media_diaria_val = p.media_diaria or 0 %}
                 {% set demanda_mensal = media_diaria_val * 30 %}
                 {% set estoque_atual_val = p.estoque_atual or 0 %}
+                {% set estoque_full_val = p.estoque_full or 0 %}
+                {% set estoque_flex_val = p.estoque_flex or 0 %}
                 {% set sugestao_mes_val = demanda_mensal - estoque_atual_val %}
                 {% if sugestao_mes_val < 0 %}
                     {% set sugestao_mes_val = 0 %}
@@ -151,6 +170,8 @@
                     data-nome="{{ p.nome|lower }}"
                     data-sku="{{ p.sku|lower }}"
                     data-estoque="{{ estoque_atual_val }}"
+                    data-estoque_full="{{ estoque_full_val }}"
+                    data-estoque_flex="{{ estoque_flex_val }}"
                     data-sugestao_mes="{{ '%.0f'|format(sugestao_mes_val) }}"
                     data-media="{{ '%.0f'|format(media_diaria_val) }}"
                     data-dias="{{ '%.0f'|format(p.dias_cobertura or 0) }}"
@@ -160,6 +181,8 @@
                     <td class="px-3 py-2">{{ p.nome }}</td>
                     <td class="px-3 py-2">{{ p.sku }}</td>
                     <td class="px-3 py-2 text-right">{{ estoque_atual_val|int }}</td>
+                    <td class="px-3 py-2 text-right">{{ estoque_full_val|int }}</td>
+                    <td class="px-3 py-2 text-right">{{ estoque_flex_val|int }}</td>
                     <td class="px-3 py-2 text-right">{{ '%.0f'|format(sugestao_mes_val) }}</td>
                     <td class="px-3 py-2 text-right">R$ {{ '%.2f'|format(p.custo_unitario or 0) }}</td>
                     <td class="px-3 py-2 text-right">R$ {{ '%.2f'|format(p.custo_estoque or 0) }}</td>

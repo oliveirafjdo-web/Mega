@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}Importar Estoque ML Full • Mega ERP{% endblock %}
+
+{% block page_icon %}<i class="bi bi-cloud-upload text-primary"></i>{% endblock %}
+{% block page_title %}Importar Estoque ML Full{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <!-- Card de Instruções -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">
+                <i class="bi bi-info-circle text-primary me-2"></i>
+                Como funciona
+            </h5>
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-2"><strong>📋 Colunas necessárias na planilha:</strong></p>
+                    <ul class="small mb-3">
+                        <li><strong>SKU</strong> - Código do produto</li>
+                        <li><strong>Produto</strong> - Nome do produto (informativo)</li>
+                        <li><strong>Unidades aptas</strong> ou <strong>Estoque</strong> - Quantidade disponível</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-2"><strong>⚙️ Modos de importação:</strong></p>
+                    <ul class="small mb-3">
+                        <li><strong>Substituir:</strong> O estoque será atualizado com o valor da planilha</li>
+                        <li><strong>Ajustar:</strong> Calcula a diferença e registra entrada/saída</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="alert alert-info mb-0">
+                <i class="bi bi-lightbulb me-2"></i>
+                <strong>Dica:</strong> Baixe a planilha de estoque do Mercado Livre Full e faça upload aqui. 
+                Os produtos serão identificados pelo SKU e o estoque será ajustado automaticamente.
+            </div>
+        </div>
+    </div>
+
+    <!-- Formulário de Upload -->
+    {% if not resumo %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label">
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i>
+                            Selecione a planilha Excel
+                        </label>
+                        <input type="file" 
+                               name="arquivo" 
+                               class="form-control" 
+                               accept=".xlsx,.xls" 
+                               required>
+                        <small class="text-muted">Formatos aceitos: .xlsx, .xls</small>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">
+                            <i class="bi bi-gear me-1"></i>
+                            Modo de importação
+                        </label>
+                        <select name="modo" class="form-select">
+                            <option value="substituir" selected>Substituir estoque</option>
+                            <option value="ajustar">Ajustar diferença</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-upload me-2"></i>
+                            Importar Estoque
+                        </button>
+                        <a href="{{ url_for('estoque_view') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i>
+                            Voltar ao Estoque
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Resultado da Importação -->
+    {% if resumo %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">
+                <i class="bi bi-check-circle text-success me-2"></i>
+                Importação Concluída
+            </h5>
+            
+            <!-- Resumo Geral -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="card bg-success bg-opacity-10 border-success">
+                        <div class="card-body text-center">
+                            <h2 class="mb-0 text-success">{{ resumo.produtos_atualizados }}</h2>
+                            <small class="text-muted">Produtos atualizados</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card bg-warning bg-opacity-10 border-warning">
+                        <div class="card-body text-center">
+                            <h2 class="mb-0 text-warning">{{ resumo.produtos_nao_encontrados|length }}</h2>
+                            <small class="text-muted">SKUs não encontrados</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card bg-danger bg-opacity-10 border-danger">
+                        <div class="card-body text-center">
+                            <h2 class="mb-0 text-danger">{{ resumo.erros|length }}</h2>
+                            <small class="text-muted">Erros</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detalhes dos Ajustes -->
+            {% if resumo.ajustes_registrados %}
+            <h6 class="mb-3">
+                <i class="bi bi-list-check text-primary me-2"></i>
+                Ajustes Realizados
+            </h6>
+            <div class="table-responsive mb-4" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-hover">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>SKU</th>
+                            <th>Produto</th>
+                            <th class="text-end">Estoque Anterior</th>
+                            <th class="text-end">Novo Estoque</th>
+                            <th class="text-end">Diferença</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ajuste in resumo.ajustes_registrados %}
+                        <tr>
+                            <td><code>{{ ajuste.sku }}</code></td>
+                            <td>{{ ajuste.nome }}</td>
+                            <td class="text-end">{{ ajuste.anterior }}</td>
+                            <td class="text-end"><strong>{{ ajuste.novo }}</strong></td>
+                            <td class="text-end">
+                                {% if ajuste.diferenca > 0 %}
+                                    <span class="badge bg-success">+{{ ajuste.diferenca }}</span>
+                                {% elif ajuste.diferenca < 0 %}
+                                    <span class="badge bg-danger">{{ ajuste.diferenca }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">0</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            <!-- Produtos Não Encontrados -->
+            {% if resumo.produtos_nao_encontrados %}
+            <h6 class="mb-3">
+                <i class="bi bi-exclamation-triangle text-warning me-2"></i>
+                SKUs Não Encontrados no Sistema
+            </h6>
+            <div class="alert alert-warning">
+                <p class="mb-2">
+                    <strong>Os seguintes SKUs estão na planilha mas não foram encontrados no sistema:</strong>
+                </p>
+                <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Produto</th>
+                                <th class="text-end">Quantidade ML</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in resumo.produtos_nao_encontrados %}
+                            <tr>
+                                <td><code>{{ item.sku }}</code></td>
+                                <td>{{ item.nome }}</td>
+                                <td class="text-end">{{ item.quantidade_ml }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="mb-0 mt-2 small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Cadastre esses produtos primeiro em <a href="{{ url_for('lista_produtos') }}">Produtos</a> para que possam ser importados.
+                </p>
+            </div>
+            {% endif %}
+
+            <!-- Erros -->
+            {% if resumo.erros %}
+            <h6 class="mb-3">
+                <i class="bi bi-x-circle text-danger me-2"></i>
+                Erros Durante Importação
+            </h6>
+            <div class="alert alert-danger">
+                <ul class="mb-0">
+                    {% for erro in resumo.erros %}
+                    <li>{{ erro }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            <!-- Ações -->
+            <div class="mt-4">
+                <a href="{{ url_for('importar_estoque_ml_full_view') }}" class="btn btn-primary">
+                    <i class="bi bi-arrow-clockwise me-1"></i>
+                    Nova Importação
+                </a>
+                <a href="{{ url_for('estoque_view') }}" class="btn btn-success">
+                    <i class="bi bi-box-seam me-1"></i>
+                    Ver Estoque Atualizado
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

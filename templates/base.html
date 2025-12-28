@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>{% block title %}Redutron ERP{% endblock %}</title>
+  <title>{% block title %}Mega ERP{% endblock %}</title>
 
   <!-- Bootstrap 5 -->
   <link
@@ -66,6 +66,8 @@
       position: sticky;
       top: 0;
       height: 100vh;
+      overflow-y: auto; /* permite rolar quando as seções estão expandidas */
+      overflow-x: hidden;
       border-right: 1px solid var(--border);
       box-shadow: 8px 0 24px rgba(15,23,42,0.06);
     }
@@ -109,6 +111,190 @@
       padding-left: .5rem;
       font-weight: 600;
     }
+
+    .menu-search {
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+
+    .menu-search input {
+      width: 100%;
+      padding: .6rem 1rem .6rem 2.5rem;
+      border: 1px solid var(--border);
+      border-radius: .85rem;
+      background: rgba(255,255,255,0.9);
+      font-size: 13px;
+      transition: all 0.2s ease;
+    }
+
+    .menu-search input:focus {
+      outline: none;
+      border-color: rgba(37, 99, 235, 0.5);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .menu-search i {
+      position: absolute;
+      left: .9rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-section {
+      margin-bottom: 1.5rem;
+    }
+
+    .nav-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .5rem .5rem;
+      cursor: pointer;
+      border-radius: .7rem;
+      transition: all 0.2s ease;
+      margin-bottom: .5rem;
+    }
+
+    .nav-section-header:hover {
+      background: rgba(37, 99, 235, 0.05);
+    }
+
+    .nav-section-header .title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    .nav-section-header .toggle {
+      font-size: 12px;
+      color: var(--muted);
+      transition: transform 0.2s ease;
+    }
+
+    .nav-section.collapsed .toggle {
+      transform: rotate(-90deg);
+    }
+
+    .nav-section-content {
+      max-height: 1000px;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+
+    .nav-section.collapsed .nav-section-content {
+      max-height: 0;
+    }
+
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .85rem 1rem;
+      background: rgba(255,255,255,0.7);
+      border-radius: .9rem;
+      border: 1px solid var(--border);
+      margin-bottom: 1.5rem;
+    }
+
+    .user-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--heading);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .quick-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .quick-action-btn {
+      flex: 1;
+      min-width: calc(50% - .25rem);
+      padding: .55rem .75rem;
+      border: 1px solid var(--border);
+      border-radius: .75rem;
+      background: rgba(255,255,255,0.8);
+      color: var(--text);
+      font-size: 12px;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      transition: all 0.2s ease;
+      font-weight: 500;
+    }
+
+    .quick-action-btn:hover {
+      background: rgba(37, 99, 235, 0.1);
+      border-color: rgba(37, 99, 235, 0.3);
+      color: var(--primary);
+      transform: translateY(-1px);
+    }
+
+    .quick-action-btn i {
+      font-size: 14px;
+    }
+
+    .nav-badge {
+      font-size: 9px;
+      padding: .15rem .4rem;
+      border-radius: 50px;
+      font-weight: 600;
+      margin-left: auto;
+    }
+
+    .nav-badge.badge-new {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+    }
+
+    .nav-badge.badge-hot {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: white;
+    }
+
+    .nav-link .icon-vendas { color: #10b981; }
+    .nav-link .icon-estoque { color: #f59e0b; }
+    .nav-link .icon-financeiro { color: #8b5cf6; }
+    .nav-link .icon-sistema { color: #6b7280; }
+    .nav-link .icon-dashboard { color: #3b82f6; }
+    .nav-link .icon-operacoes { color: #ec4899; }
 
     .nav-link {
       display: flex;
@@ -437,85 +623,195 @@
       <div class="brand">
         <div class="brand-icon">M</div>
         <div class="brand-text">
-          <div class="title">MetriFy ERP</div>
+          <div class="title">Mega ERP</div>
           <div class="subtitle">Gestão Inteligente de Lucro</div>
         </div>
       </div>
 
-      <div class="nav-section-title">Navegação</div>
+      <!-- Perfil do Usuário -->
+      <div class="user-profile">
+        <div class="user-avatar">{{ current_user.username[0]|upper if current_user and current_user.username else 'A' }}</div>
+        <div class="user-info">
+          <div class="user-name">{{ current_user.username if current_user and current_user.username else 'Admin' }}</div>
+          <div class="user-role">Administrador</div>
+        </div>
+      </div>
 
-      <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
-        <i class="bi bi-speedometer2"></i>
-        <span>Dashboard</span>
-      </a>
+      <!-- Busca Rápida -->
+      <div class="menu-search">
+        <i class="bi bi-search"></i>
+        <input type="text" id="menuSearchInput" placeholder="Buscar no menu..." onkeyup="filtrarMenu()">
+      </div>
 
-      <a href="{{ url_for('lista_produtos') }}" class="nav-link {% if request.endpoint in ['lista_produtos','novo_produto','editar_produto'] %}active{% endif %}">
-        <i class="bi bi-box-seam"></i>
-        <span>Produtos</span>
-      </a>
+      <!-- Quick Actions -->
+      <div class="quick-actions">
+        <a href="{{ url_for('importar_ml_view') }}" class="quick-action-btn" title="Importar do Mercado Livre">
+          <i class="bi bi-cloud-download"></i>
+          <span>Importar</span>
+        </a>
+        <a href="{{ url_for('lista_vendas') }}" class="quick-action-btn" title="Ver todas as vendas">
+          <i class="bi bi-cart-check"></i>
+          <span>Vendas</span>
+        </a>
+        <a href="{{ url_for('estoque_view') }}" class="quick-action-btn" title="Gerenciar estoque">
+          <i class="bi bi-box-seam"></i>
+          <span>Estoque</span>
+        </a>
+        <a href="{{ url_for('relatorio_lucro') }}" class="quick-action-btn" title="Relatório de lucro">
+          <i class="bi bi-graph-up"></i>
+          <span>Lucro</span>
+        </a>
+      </div>
 
-      <a href="{{ url_for('estoque_view') }}" class="nav-link {% if request.endpoint == 'estoque_view' %}active{% endif %}">
-        <i class="bi bi-stack"></i>
-        <span>Estoque & Reposição</span>
-      </a>
+      <!-- Seção: Visão Geral -->
+      <div class="nav-section">
+        <div class="nav-section-header" onclick="toggleSection(this)">
+          <div class="title">
+            <i class="bi bi-grid-3x3-gap-fill icon-dashboard"></i>
+            Visão Geral
+          </div>
+          <i class="bi bi-chevron-down toggle"></i>
+        </div>
+        <div class="nav-section-content">
+          <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" data-search="dashboard painel visao geral">
+            <i class="bi bi-speedometer2 icon-dashboard"></i>
+            <span>Dashboard</span>
+          </a>
+        </div>
+      </div>
 
-      <a href="{{ url_for('importar_ml_view') }}" class="nav-link {% if request.endpoint == 'importar_ml_view' %}active{% endif %}">
-        <i class="bi bi-cloud-arrow-up"></i>
-        <span>Importar Vendas ML</span>
-      </a>
+      <!-- Seção: Vendas & Importação -->
+      <div class="nav-section">
+        <div class="nav-section-header" onclick="toggleSection(this)">
+          <div class="title">
+            <i class="bi bi-cart-check icon-vendas"></i>
+            Vendas & Importação
+          </div>
+          <i class="bi bi-chevron-down toggle"></i>
+        </div>
+        <div class="nav-section-content">
+          <a href="{{ url_for('lista_vendas') }}" class="nav-link {% if request.endpoint in ['lista_vendas','editar_venda'] %}active{% endif %}" data-search="vendas pedidos orders">
+            <i class="bi bi-receipt icon-vendas"></i>
+            <span>Vendas</span>
+            <span class="nav-badge badge-hot">HOT</span>
+          </a>
+          <a href="{{ url_for('importar_ml_view') }}" class="nav-link {% if request.endpoint == 'importar_ml_view' %}active{% endif %}" data-search="importar mercado livre ml">
+            <i class="bi bi-cloud-arrow-up icon-vendas"></i>
+            <span>Importar ML</span>
+          </a>
+          <a href="{{ url_for('importar_mp_view') }}" class="nav-link {% if request.endpoint == 'importar_mp_view' %}active{% endif %}" data-search="importar mercado pago mp">
+            <i class="bi bi-bank icon-vendas"></i>
+            <span>Importar Mercado Pago</span>
+          </a>
+          <a href="{{ url_for('importar_mp_full_view') }}" class="nav-link {% if request.endpoint == 'importar_mp_full_view' %}active{% endif %}" data-search="importar mercado pago full excel">
+            <i class="bi bi-file-earmark-excel icon-vendas"></i>
+            <span>Importar MP Full</span>
+            <span class="nav-badge badge-new">NEW</span>
+          </a>
+          <a href="{{ url_for('conciliacao_view') }}" class="nav-link {% if request.endpoint == 'conciliacao_view' %}active{% endif %}" data-search="conciliacao conciliar ml mp">
+            <i class="bi bi-arrow-left-right icon-vendas"></i>
+            <span>Conciliação ML × MP</span>
+          </a>
+        </div>
+      </div>
 
-      <a href="{{ url_for('importar_mp_view') }}" class="nav-link {% if request.endpoint == 'importar_mp_view' %}active{% endif %}">
-        <i class="bi bi-bank"></i>
-        <span>Importar Mercado Pago</span>
-      </a>
+      <!-- Seção: Catálogo & Estoque -->
+      <div class="nav-section">
+        <div class="nav-section-header" onclick="toggleSection(this)">
+          <div class="title">
+            <i class="bi bi-box-seam icon-estoque"></i>
+            Catálogo & Estoque
+          </div>
+          <i class="bi bi-chevron-down toggle"></i>
+        </div>
+        <div class="nav-section-content">
+          <a href="{{ url_for('lista_produtos') }}" class="nav-link {% if request.endpoint in ['lista_produtos','novo_produto','editar_produto'] %}active{% endif %}" data-search="produtos catalogo sku">
+            <i class="bi bi-box-seam icon-estoque"></i>
+            <span>Produtos</span>
+          </a>
+          <a href="{{ url_for('estoque_view') }}" class="nav-link {% if request.endpoint == 'estoque_view' %}active{% endif %}" data-search="estoque reposicao inventario">
+            <i class="bi bi-stack icon-estoque"></i>
+            <span>Estoque & Reposição</span>
+          </a>
+            <a href="{{ url_for('importar_estoque_ml_full_view') }}" class="nav-link {% if request.endpoint == 'importar_estoque_ml_full_view' %}active{% endif %}" data-search="importar estoque ml full planilha excel">
+              <i class="bi bi-cloud-upload icon-estoque"></i>
+              <span>Importar Estoque ML Full</span>
+              <span class="nav-badge badge-hot">HOT</span>
+            </a>
+          <a href="{{ url_for('criar_produtos_de_vendas') }}" class="nav-link {% if request.endpoint == 'criar_produtos_de_vendas' %}active{% endif %}" data-search="criar produtos automatico">
+            <i class="bi bi-hammer icon-estoque"></i>
+            <span>Criar Produtos</span>
+            <span class="nav-badge badge-new">NEW</span>
+          </a>
+          <a href="{{ url_for('gerenciar_lotes') }}" class="nav-link {% if request.endpoint == 'gerenciar_lotes' %}active{% endif %}" data-search="lotes gerenciar limpar">
+            <i class="bi bi-trash icon-estoque"></i>
+            <span>Gerenciar Lotes</span>
+          </a>
+        </div>
+      </div>
 
-      <a href="{{ url_for('etiquetas_zpl') }}" class="nav-link {% if request.endpoint == 'etiquetas_zpl' %}active{% endif %}">
-        <i class="bi bi-printer"></i>
-        <span>Etiquetas ZPL</span>
-      </a>
+      <!-- Seção: Financeiro -->
+      <div class="nav-section">
+        <div class="nav-section-header" onclick="toggleSection(this)">
+          <div class="title">
+            <i class="bi bi-wallet2 icon-financeiro"></i>
+            Financeiro
+          </div>
+          <i class="bi bi-chevron-down toggle"></i>
+        </div>
+        <div class="nav-section-content">
+          <a href="{{ url_for('financeiro_view') }}" class="nav-link {% if request.endpoint == 'financeiro_view' %}active{% endif %}" data-search="financeiro transacoes dinheiro">
+            <i class="bi bi-cash-coin icon-financeiro"></i>
+            <span>Financeiro</span>
+          </a>
+          <a href="{{ url_for('relatorio_lucro') }}" class="nav-link {% if request.endpoint == 'relatorio_lucro' %}active{% endif %}" data-search="relatorio lucro margem">
+            <i class="bi bi-graph-up-arrow icon-financeiro"></i>
+            <span>Relatório de Lucro</span>
+          </a>
+        </div>
+      </div>
 
-      <a href="{{ url_for('financeiro_view') }}" class="nav-link {% if request.endpoint == 'financeiro_view' %}active{% endif %}">
-        <i class="bi bi-cash-coin"></i>
-        <span>Financeiro</span>
-      </a>
+      <!-- Seção: Operações -->
+      <div class="nav-section">
+        <div class="nav-section-header" onclick="toggleSection(this)">
+          <div class="title">
+            <i class="bi bi-printer icon-operacoes"></i>
+            Operações
+          </div>
+          <i class="bi bi-chevron-down toggle"></i>
+        </div>
+        <div class="nav-section-content">
+          <a href="{{ url_for('etiquetas_zpl') }}" class="nav-link {% if request.endpoint == 'etiquetas_zpl' %}active{% endif %}" data-search="etiquetas zpl imprimir">
+            <i class="bi bi-printer icon-operacoes"></i>
+            <span>Etiquetas ZPL</span>
+          </a>
+        </div>
+      </div>
 
-      <a href="{{ url_for('conciliacao_view') }}" class="nav-link {% if request.endpoint == 'conciliacao_view' %}active{% endif %}">
-        <i class="bi bi-arrow-left-right"></i>
-        <span>Conciliação ML × MP</span>
-      </a>
-
-
-      <a href="{{ url_for('lista_vendas') }}" class="nav-link {% if request.endpoint in ['lista_vendas','editar_venda'] %}active{% endif %}">
-        <i class="bi bi-receipt"></i>
-        <span>Vendas</span>
-      </a>
-
-      <a href="{{ url_for('gerenciar_lotes') }}" class="nav-link {% if request.endpoint == 'gerenciar_lotes' %}active{% endif %}">
-        <i class="bi bi-trash"></i>
-        <span>Gerenciar Lotes</span>
-      </a>
-
-      <a href="{{ url_for('criar_produtos_de_vendas') }}" class="nav-link {% if request.endpoint == 'criar_produtos_de_vendas' %}active{% endif %}">
-        <i class="bi bi-hammer"></i>
-        <span>Criar Produtos</span>
-      </a>
-
-      <a href="{{ url_for('relatorio_lucro') }}" class="nav-link {% if request.endpoint == 'relatorio_lucro' %}active{% endif %}">
-        <i class="bi bi-graph-up-arrow"></i>
-        <span>Relatório de Lucro</span>
-      </a>
-
-      <div class="nav-section-title mt-3">Sistema</div>
-
-      <a href="{{ url_for('configuracoes_view') }}" class="nav-link {% if request.endpoint == 'configuracoes_view' %}active{% endif %}">
-        <i class="bi bi-sliders2-vertical"></i>
-        <span>Configurações</span>
-      </a>
-
-      <a href="{{ url_for('logout_view') }}" class="nav-link" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
-        <i class="bi bi-box-arrow-right"></i>
-        <span>Sair</span>
-      </a>
+      <!-- Seção: Sistema -->
+      <div class="nav-section">
+        <div class="nav-section-header" onclick="toggleSection(this)">
+          <div class="title">
+            <i class="bi bi-gear icon-sistema"></i>
+            Sistema
+          </div>
+          <i class="bi bi-chevron-down toggle"></i>
+        </div>
+        <div class="nav-section-content">
+          <a href="{{ url_for('admin_backup') }}" class="nav-link {% if request.endpoint == 'admin_backup' %}active{% endif %}" data-search="backup exportar importar restore">
+            <i class="bi bi-cloud-arrow-up icon-sistema"></i>
+            <span>Backup</span>
+          </a>
+          <a href="{{ url_for('configuracoes_view') }}" class="nav-link {% if request.endpoint == 'configuracoes_view' %}active{% endif %}" data-search="configuracoes settings opcoes">
+            <i class="bi bi-sliders2-vertical icon-sistema"></i>
+            <span>Configurações</span>
+          </a>
+          <a href="{{ url_for('logout_view') }}" class="nav-link" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;" data-search="sair logout deslogar">
+            <i class="bi bi-box-arrow-right icon-sistema"></i>
+            <span>Sair</span>
+          </a>
+        </div>
+      </div>
     </aside>
 
     <main class="content-wrapper">
@@ -524,7 +820,7 @@
           <div class="topbar-title">
             {% block page_icon %}<i class="bi bi-speedometer2 text-primary"></i>{% endblock %}
             <span>{% block page_title %}Visão Geral{% endblock %}</span>
-            <span class="badge text-bg-primary border border-light-subtle">MetriFy • SQLite</span>
+            <span class="badge text-bg-primary border border-light-subtle">Mega ERP • SQLite</span>
           </div>
           <div class="topbar-right">
             <div class="topbar-pill">
@@ -550,6 +846,79 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <script>
+    // Toggle collapse de seções do menu
+    function toggleSection(header) {
+      const section = header.parentElement;
+      section.classList.toggle('collapsed');
+      
+      // Salvar estado no localStorage
+      const title = header.querySelector('.title').textContent.trim();
+      const isCollapsed = section.classList.contains('collapsed');
+      localStorage.setItem('menu-section-' + title, isCollapsed);
+    }
+
+    // Restaurar estado das seções ao carregar página
+    document.addEventListener('DOMContentLoaded', function() {
+      const sections = document.querySelectorAll('.nav-section');
+      sections.forEach(section => {
+        const header = section.querySelector('.nav-section-header');
+        const title = header.querySelector('.title').textContent.trim();
+        const savedState = localStorage.getItem('menu-section-' + title);
+        
+        if (savedState === 'true') {
+          section.classList.add('collapsed');
+        }
+      });
+    });
+
+    // Busca no menu
+    function filtrarMenu() {
+      const input = document.getElementById('menuSearchInput');
+      const filter = input.value.toLowerCase();
+      const links = document.querySelectorAll('.nav-link');
+      const sections = document.querySelectorAll('.nav-section');
+      
+      if (filter === '') {
+        // Mostrar tudo e restaurar estados colapsados
+        links.forEach(link => {
+          link.style.display = 'flex';
+        });
+        sections.forEach(section => {
+          const header = section.querySelector('.nav-section-header');
+          const title = header.querySelector('.title').textContent.trim();
+          const savedState = localStorage.getItem('menu-section-' + title);
+          
+          if (savedState === 'true') {
+            section.classList.add('collapsed');
+          } else {
+            section.classList.remove('collapsed');
+          }
+        });
+        return;
+      }
+      
+      // Expandir todas as seções durante busca
+      sections.forEach(section => {
+        section.classList.remove('collapsed');
+      });
+      
+      // Filtrar links
+      links.forEach(link => {
+        const text = link.textContent.toLowerCase();
+        const searchData = link.getAttribute('data-search') || '';
+        const combinedText = text + ' ' + searchData.toLowerCase();
+        
+        if (combinedText.includes(filter)) {
+          link.style.display = 'flex';
+        } else {
+          link.style.display = 'none';
+        }
+      });
+    }
+  </script>
+  
   {% block extra_js %}{% endblock %}
 </body>
 </html>

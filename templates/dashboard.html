@@ -1,19 +1,58 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Metrify{% endblock %}
+{% block title %}Dashboard - Mega ERP{% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4">
 
-    <!-- Cabeçalho -->
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div>
-            <h1 class="h3 mb-1">Visão geral do negócio</h1>
-            <p class="text-muted mb-0">
-                Resultados consolidados do período selecionado.
-            </p>
-            <small class="text-muted">
-                Período: 
+    <!-- Cabeçalho com título -->
+    <div class="mb-3">
+        <h1 class="h3 mb-1">
+            <i class="bi bi-grid-3x3-gap-fill me-2"></i>
+            Dashboard
+        </h1>
+        <p class="text-muted mb-0">Visão geral consolidada do seu negócio</p>
+    </div>
+
+    <!-- Filtro de período com botões rápidos - Sticky -->
+    <div class="card shadow-sm mb-4 sticky-top" style="top: 70px; z-index: 1020; background: white;">
+        <div class="card-body">
+            <form class="row g-3" method="GET" id="formPeriodo">
+                <div class="col-12">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(0)">
+                            <i class="bi bi-calendar-day me-1"></i> Hoje
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(7)">
+                            <i class="bi bi-calendar-week me-1"></i> 7 dias
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setQuickPeriod(30)">
+                            <i class="bi bi-calendar-month me-1"></i> 30 dias
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setCurrentMonth()">
+                            <i class="bi bi-calendar-check me-1"></i> Este mês
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="setLastMonth()">
+                            <i class="bi bi-calendar me-1"></i> Mês anterior
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Data início</label>
+                    <input type="date" name="data_inicio" id="data_inicio" class="form-control" value="{{ data_inicio }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Data fim</label>
+                    <input type="date" name="data_fim" id="data_fim" class="form-control" value="{{ data_fim }}">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-funnel me-1"></i> Filtrar
+                    </button>
+                </div>
+            </form>
+            <small class="text-muted mt-2 d-block">
+                Período atual: 
                 {% if data_inicio %}{{ data_inicio }}{% else %}-{% endif %}
                  até 
                 {% if data_fim %}{{ data_fim }}{% else %}-{% endif %}
@@ -21,327 +60,127 @@
         </div>
     </div>
 
-    <!-- Filtro de período -->
-    <form class="row g-3 mb-4" method="GET">
-        <div class="col-md-3">
-            <label class="form-label">Data início</label>
-            <input type="date" name="data_inicio" class="form-control" value="{{ data_inicio }}">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Data fim</label>
-            <input type="date" name="data_fim" class="form-control" value="{{ data_fim }}">
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-            <button class="btn btn-primary w-100">Filtrar</button>
-        </div>
-    </form>
-
-    <!-- Linha 1 - KPIs principais -->
-    <div class="row g-3 mb-3">
+    <!-- Hero KPIs - 4 cards principais grandes -->
+    <div class="row g-3 mb-4">
 
         <!-- Receita bruta -->
         <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-primary">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Receita bruta</div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(receita_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Valor total vendido no período.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-primary bg-opacity-10 p-3">
-                            <i class="bi bi-graph-up-arrow text-primary fs-4"></i>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #3498db !important;">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Receita Bruta</div>
+                        <div class="rounded-circle bg-primary bg-opacity-10 p-2">
+                            <i class="bi bi-graph-up-arrow text-primary fs-5"></i>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Receita líquida -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-info">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Receita líquida</div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(receita_liquida_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Receita após comissão, imposto e despesas.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-info bg-opacity-10 p-3">
-                            <i class="bi bi-cash-coin text-info fs-4"></i>
-                        </div>
-                    </div>
+                    <div class="h2 mb-2 fw-bold">R$ {{ '%.2f'|format(receita_total or 0) }}</div>
+                    <small class="text-muted">Valor total vendido</small>
                 </div>
             </div>
         </div>
 
         <!-- Lucro líquido -->
         <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-success">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Lucro líquido</div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(lucro_liquido_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Mesmo cálculo do Relatório de Lucro.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-success bg-opacity-10 p-3">
-                            <i class="bi bi-wallet2 text-success fs-4"></i>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #27ae60 !important;">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Lucro Líquido</div>
+                        <div class="rounded-circle bg-success bg-opacity-10 p-2">
+                            <i class="bi bi-wallet2 text-success fs-5"></i>
                         </div>
                     </div>
+                    <div class="h2 mb-2 fw-bold text-success">R$ {{ '%.2f'|format(lucro_liquido_total or 0) }}</div>
+                    <small class="text-muted">Após todos os custos</small>
                 </div>
             </div>
         </div>
 
         <!-- Margem líquida -->
         <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-warning">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Margem líquida</div>
-                        <div class="h4 mb-0">
-                            {{ '%.2f'|format(margem_liquida_percent or 0) }}%
-                        </div>
-                        <small class="text-muted">
-                            Percentual de lucro sobre a receita bruta.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-warning bg-opacity-10 p-3">
-                            <i class="bi bi-percent text-warning fs-4"></i>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #f39c12 !important;">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Margem Líquida</div>
+                        <div class="rounded-circle bg-warning bg-opacity-10 p-2">
+                            <i class="bi bi-percent text-warning fs-5"></i>
                         </div>
                     </div>
+                    <div class="h2 mb-2 fw-bold text-warning">{{ '%.2f'|format(margem_liquida_percent or 0) }}%</div>
+                    <small class="text-muted">Lucratividade</small>
                 </div>
             </div>
         </div>
-
-    </div>
-
-    <!-- Linha 2 - Custos / impostos / ticket / canceladas -->
-    <div class="row g-3 mb-3">
-
-        <!-- Custo de produtos -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-purple">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Custo de produtos</div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(custo_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Soma dos custos informados nos produtos.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-secondary bg-opacity-10 p-3">
-                            <i class="bi bi-box-seam text-secondary fs-4"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Comissão estimada Mercado Livre -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-danger">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">
-                            Comissão Mercado Livre (estimada)
-                        </div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(comissao_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Estimada a partir da diferença entre receita, custo e margem.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-danger bg-opacity-10 p-3">
-                            <i class="bi bi-receipt-cutoff text-danger fs-4"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Imposto -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-warning">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">
-                            Imposto ({{ '%.2f'|format(cfg.imposto_percent if cfg else 0) }}%)
-                        </div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(imposto_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Calculado sobre a receita bruta.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-warning bg-opacity-10 p-3">
-                            <i class="bi bi-journal-text text-warning fs-4"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Despesas -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-teal">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">
-                            Despesas ({{ '%.2f'|format(cfg.despesas_percent if cfg else 0) }}%)
-                        </div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(despesas_total or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Percentual aplicado sobre a receita bruta.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-info bg-opacity-10 p-3">
-                            <i class="bi bi-building text-info fs-4"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Vendas Canceladas -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-danger">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Vendas canceladas</div>
-                        <div class="h4 mb-0">
-                            {{ vendas_canceladas_qtd or 0 }}
-                        </div>
-                        <small class="text-muted">
-                            Valor: R$ {{ '%.2f'|format(vendas_canceladas_valor or 0) }}
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-danger bg-opacity-10 p-3">
-                            <i class="bi bi-x-circle text-danger fs-4"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Linha 3 - Ticket, produtos, estoque -->
-    <div class="row g-3 mb-3">
 
         <!-- Ticket médio -->
         <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-primary">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">Ticket médio</div>
-                        <div class="h4 mb-0">
-                            R$ {{ '%.2f'|format(ticket_medio or 0) }}
-                        </div>
-                        <small class="text-muted">
-                            Preço médio vendido por unidade.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-primary bg-opacity-10 p-3">
-                            <i class="bi bi-currency-exchange text-primary fs-4"></i>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #9b59b6 !important;">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Ticket Médio</div>
+                        <div class="rounded-circle bg-secondary bg-opacity-10 p-2">
+                            <i class="bi bi-currency-exchange text-secondary fs-5"></i>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Produtos cadastrados -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-info">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">
-                            Produtos cadastrados
-                        </div>
-                        <div class="h4 mb-0">
-                            {{ total_produtos or 0 }}
-                        </div>
-                        <small class="text-muted">
-                            Total de SKUs ativos no sistema.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-secondary bg-opacity-10 p-3">
-                            <i class="bi bi-box2-heart text-secondary fs-4"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Estoque atual (unidades) -->
-        <div class="col-12 col-md-6 col-xl-3">
-            <div class="card shadow-sm border-0 h-100 card-success">
-                <div class="card-body d-flex">
-                    <div class="flex-grow-1">
-                        <div class="text-muted text-uppercase small mb-1">
-                            Estoque atual (unidades)
-                        </div>
-                        <div class="h4 mb-0">
-                            {{ estoque_total|int }}
-                        </div>
-                        <small class="text-muted">
-                            Soma de todos os estoques atuais dos produtos.
-                        </small>
-                    </div>
-                    <div class="ms-3 d-flex align-items-center">
-                        <div class="rounded-circle bg-success bg-opacity-10 p-3">
-                            <i class="bi bi-stack text-success fs-4"></i>
-                        </div>
-                    </div>
+                    <div class="h2 mb-2 fw-bold text-secondary">R$ {{ '%.2f'|format(ticket_medio or 0) }}</div>
+                    <small class="text-muted">Preço médio por venda</small>
                 </div>
             </div>
         </div>
 
     </div>
 
-    <!-- Linha 4 - Produtos destaque -->
-    <div class="row g-3">
+    <!-- Mini Insights -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="alert alert-info mb-0 d-flex align-items-center">
+                <i class="bi bi-info-circle-fill me-2 fs-5"></i>
+                <div>
+                    <strong>Receita Líquida:</strong>
+                    R$ {{ '%.2f'|format(receita_liquida_total or 0) }}
+                    <small class="d-block text-muted">Após comissão, imposto e despesas</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="alert alert-danger mb-0 d-flex align-items-center">
+                <i class="bi bi-x-circle-fill me-2 fs-5"></i>
+                <div>
+                    <strong>Vendas Canceladas:</strong>
+                    {{ vendas_canceladas_qtd or 0 }} vendas
+                    <small class="d-block text-muted">Valor: R$ {{ '%.2f'|format(vendas_canceladas_valor or 0) }}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Linha - Produtos em destaque com cards aprimorados -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <h5 class="mb-3">
+                <i class="bi bi-trophy-fill text-warning me-2"></i>
+                Performance de Produtos
+            </h5>
+        </div>
 
         <!-- Produto mais vendido -->
         <div class="col-12 col-md-4">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header bg-transparent border-bottom-0">
-                    <strong>Produto mais vendido</strong>
-                </div>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #3498db !important;">
                 <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-star-fill text-primary fs-4 me-2"></i>
+                        <strong class="text-uppercase small">Mais Vendido</strong>
+                    </div>
                     {% if produto_mais_vendido %}
-                        <p class="mb-1 fw-semibold">{{ produto_mais_vendido[0] }}</p>
+                        <p class="mb-2 fw-semibold">{{ produto_mais_vendido[0] }}</p>
+                        <div class="progress mb-2" style="height: 8px;">
+                            <div class="progress-bar bg-primary" style="width: 100%"></div>
+                        </div>
                         <small class="text-muted">
-                            Quantidade vendida no período: {{ produto_mais_vendido[1]|int }}
+                            <i class="bi bi-box-seam me-1"></i>
+                            {{ produto_mais_vendido[1]|int }} unidades vendidas
                         </small>
                     {% else %}
-                        <p class="text-muted mb-0">Nenhuma venda no período selecionado.</p>
+                        <p class="text-muted mb-0">Nenhuma venda no período</p>
                     {% endif %}
                 </div>
             </div>
@@ -349,18 +188,23 @@
 
         <!-- Produto com maior lucro -->
         <div class="col-12 col-md-4">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header bg-transparent border-bottom-0">
-                    <strong>Produto com maior lucro</strong>
-                </div>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #27ae60 !important;">
                 <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-gem text-success fs-4 me-2"></i>
+                        <strong class="text-uppercase small">Maior Lucro</strong>
+                    </div>
                     {% if produto_maior_lucro %}
-                        <p class="mb-1 fw-semibold">{{ produto_maior_lucro[0] }}</p>
+                        <p class="mb-2 fw-semibold">{{ produto_maior_lucro[0] }}</p>
+                        <div class="progress mb-2" style="height: 8px;">
+                            <div class="progress-bar bg-success" style="width: 85%"></div>
+                        </div>
                         <small class="text-muted">
-                            Lucro de R$ {{ '%.2f'|format(produto_maior_lucro[1] or 0) }} no período.
+                            <i class="bi bi-cash-coin me-1"></i>
+                            R$ {{ '%.2f'|format(produto_maior_lucro[1] or 0) }} de lucro
                         </small>
                     {% else %}
-                        <p class="text-muted mb-0">Nenhuma venda no período selecionado.</p>
+                        <p class="text-muted mb-0">Nenhuma venda no período</p>
                     {% endif %}
                 </div>
             </div>
@@ -368,18 +212,23 @@
 
         <!-- Produto com pior margem -->
         <div class="col-12 col-md-4">
-            <div class="card shadow-sm border-0 h-100">
-                <div class="card-header bg-transparent border-bottom-0">
-                    <strong>Produto com pior margem</strong>
-                </div>
+            <div class="card shadow-sm border-0 h-100" style="border-left: 4px solid #e74c3c !important;">
                 <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-exclamation-triangle-fill text-danger fs-4 me-2"></i>
+                        <strong class="text-uppercase small">Pior Margem</strong>
+                    </div>
                     {% if produto_pior_margem %}
-                        <p class="mb-1 fw-semibold">{{ produto_pior_margem[0] }}</p>
+                        <p class="mb-2 fw-semibold">{{ produto_pior_margem[0] }}</p>
+                        <div class="progress mb-2" style="height: 8px;">
+                            <div class="progress-bar bg-danger" style="width: 30%"></div>
+                        </div>
                         <small class="text-muted">
-                            Margem de R$ {{ '%.2f'|format(produto_pior_margem[1] or 0) }} no período.
+                            <i class="bi bi-arrow-down-circle me-1"></i>
+                            R$ {{ '%.2f'|format(produto_pior_margem[1] or 0) }} de margem
                         </small>
                     {% else %}
-                        <p class="text-muted mb-0">Nenhuma venda no período selecionado.</p>
+                        <p class="text-muted mb-0">Nenhuma venda no período</p>
                     {% endif %}
                 </div>
             </div>
@@ -387,5 +236,178 @@
 
     </div>
 
+    <!-- Quick Actions -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <h5 class="mb-3">
+                <i class="bi bi-lightning-fill text-warning me-2"></i>
+                Ações Rápidas
+            </h5>
+        </div>
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="{{ url_for('importar_ml_view') }}" class="btn btn-outline-primary">
+                            <i class="bi bi-cloud-download me-1"></i> Importar ML
+                        </a>
+                        <a href="{{ url_for('lista_vendas') }}" class="btn btn-outline-success">
+                            <i class="bi bi-cart-check me-1"></i> Ver Vendas
+                        </a>
+                        <a href="{{ url_for('estoque_view') }}" class="btn btn-outline-info">
+                            <i class="bi bi-box-seam me-1"></i> Estoque
+                        </a>
+                        <a href="{{ url_for('exportar_consolidado') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i> Exportar Dados
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detalhamento financeiro - 4 cards em linha -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <h5 class="mb-3">
+                <i class="bi bi-calculator-fill text-primary me-2"></i>
+                Detalhamento Financeiro
+            </h5>
+        </div>
+
+        <!-- Custo de produtos -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Custo Produtos</div>
+                        <i class="bi bi-box-seam text-secondary fs-4"></i>
+                    </div>
+                    <div class="h4 mb-1">R$ {{ '%.2f'|format(custo_total or 0) }}</div>
+                    <small class="text-muted">Soma dos custos</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comissão -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Comissão ML</div>
+                        <i class="bi bi-receipt-cutoff text-danger fs-4"></i>
+                    </div>
+                    <div class="h4 mb-1">R$ {{ '%.2f'|format(comissao_total or 0) }}</div>
+                    <small class="text-muted">Estimada</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Impostos -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Impostos ({{ '%.2f'|format(cfg.imposto_percent if cfg else 0) }}%)</div>
+                        <i class="bi bi-journal-text text-warning fs-4"></i>
+                    </div>
+                    <div class="h4 mb-1">R$ {{ '%.2f'|format(imposto_total or 0) }}</div>
+                    <small class="text-muted">Sobre receita bruta</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Despesas -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="text-muted text-uppercase small">Despesas ({{ '%.2f'|format(cfg.despesas_percent if cfg else 0) }}%)</div>
+                        <i class="bi bi-building text-info fs-4"></i>
+                    </div>
+                    <div class="h4 mb-1">R$ {{ '%.2f'|format(despesas_total or 0) }}</div>
+                    <small class="text-muted">Sobre receita bruta</small>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Informações adicionais -->
+    <div class="row g-3">
+
+        <!-- Produtos cadastrados -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-box2-heart text-primary fs-1 mb-2"></i>
+                    <div class="h3 mb-1">{{ total_produtos or 0 }}</div>
+                    <small class="text-muted">SKUs cadastrados</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Estoque atual -->
+        <div class="col-12 col-md-6 col-xl-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-stack text-success fs-1 mb-2"></i>
+                    <div class="h3 mb-1">{{ estoque_total|int }}</div>
+                    <small class="text-muted">Unidades em estoque</small>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
 </div>
+
+<script>
+// Funções de período rápido
+function setQuickPeriod(days) {
+    const hoje = new Date();
+    const dataFim = hoje.toISOString().split('T')[0];
+    
+    let dataInicio;
+    if (days === 0) {
+        dataInicio = dataFim;
+    } else {
+        const inicio = new Date();
+        inicio.setDate(inicio.getDate() - days);
+        dataInicio = inicio.toISOString().split('T')[0];
+    }
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+
+function setCurrentMonth() {
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    
+    const dataInicio = `${ano}-${mes}-01`;
+    const dataFim = hoje.toISOString().split('T')[0];
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+
+function setLastMonth() {
+    const hoje = new Date();
+    const primeiroDiaEstemês = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const ultimoDiaMesAnterior = new Date(primeiroDiaEstemês.getTime() - 1);
+    const primeiroDiaMesAnterior = new Date(ultimoDiaMesAnterior.getFullYear(), ultimoDiaMesAnterior.getMonth(), 1);
+    
+    const dataInicio = primeiroDiaMesAnterior.toISOString().split('T')[0];
+    const dataFim = ultimoDiaMesAnterior.toISOString().split('T')[0];
+    
+    document.getElementById('data_inicio').value = dataInicio;
+    document.getElementById('data_fim').value = dataFim;
+    document.getElementById('formPeriodo').submit();
+}
+</script>
+
 {% endblock %}

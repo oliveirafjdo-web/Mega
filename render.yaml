@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: erp-metrifiy
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash ./scripts/start.sh
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: DATA_DIR
+        value: "/srv/data"
+    healthCheckPath: /
+    autoDeploy: true

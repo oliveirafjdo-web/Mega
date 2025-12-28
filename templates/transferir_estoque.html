@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mx-auto px-4 py-6">
+    <h1 class="text-2xl font-bold mb-6">Transferir Estoque</h1>
+    <form method="post">
+        <div class="mb-4">
+            <label for="produto_id" class="block mb-1">Produto:</label>
+            <select name="produto_id" id="produto_id" class="input input-bordered w-full" required>
+                {% for p in produtos %}
+                <option value="{{ p.id }}">{{ p.nome }} (SKU: {{ p.sku }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mb-4">
+            <label for="origem" class="block mb-1">De:</label>
+            <select name="origem" id="origem" class="input input-bordered w-full" required>
+                <option value="estoque_atual">Estoque Geral</option>
+                <option value="estoque_full">Estoque Full</option>
+                <option value="estoque_flex">Estoque Flex</option>
+            </select>
+        </div>
+        <div class="mb-4">
+            <label for="destino" class="block mb-1">Para:</label>
+            <select name="destino" id="destino" class="input input-bordered w-full" required>
+                <option value="estoque_atual">Estoque Geral</option>
+                <option value="estoque_full">Estoque Full</option>
+                <option value="estoque_flex">Estoque Flex</option>
+            </select>
+        </div>
+        <div class="mb-4">
+            <label for="quantidade" class="block mb-1">Quantidade:</label>
+            <input type="number" name="quantidade" id="quantidade" class="input input-bordered w-full" min="1" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Transferir</button>
+        <a href="{{ url_for('estoque_view') }}" class="btn btn-secondary ml-2">Cancelar</a>
+    </form>
+</div>
+{% endblock %}
