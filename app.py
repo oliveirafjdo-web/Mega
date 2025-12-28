@@ -74,6 +74,19 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 import pandas as pd
+import logging
+import sys
+
+# Configure logging to ensure tracebacks and debug info go to stdout (visible in Render logs)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# Global exception handler to log full tracebacks
+from flask import got_request_exception
+got_request_exception.connect(lambda sender, exception, **extra: logging.exception("Exception during request", exc_info=exception), app)
 def migrate_ml_columns():
     """Adiciona colunas do Mercado Livre nas tabelas configuracoes e vendas"""
     try:
