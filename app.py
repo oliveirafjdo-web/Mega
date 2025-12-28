@@ -1,3 +1,58 @@
+# === Importação de dados do metrifiy.db (upload e migração para Postgres) ===
+import subprocess
+
+@app.route("/admin/importar_sqlite", methods=["GET", "POST"])
+@login_required
+def admin_importar_sqlite():
+    user = current_user
+    # Apenas admin pode acessar
+    with engine.connect() as conn:
+        usuario_atual = conn.execute(
+            select(usuarios).where(usuarios.c.id == user.id)
+        ).mappings().first()
+        if not usuario_atual or usuario_atual.get("papel") != "admin":
+            flash("Acesso negado.", "danger")
+            return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        if "sqlite_file" not in request.files:
+            flash("Nenhum arquivo enviado.", "danger")
+            return redirect(request.url)
+        file = request.files["sqlite_file"]
+        if file.filename == "":
+            flash("Selecione um arquivo.", "danger")
+            return redirect(request.url)
+        if not file.filename.endswith(".db"):
+            flash("Arquivo deve ter extensão .db", "danger")
+            return redirect(request.url)
+
+        # Salvar arquivo temporário
+        upload_path = os.path.join(app.config["UPLOAD_FOLDER"], "import_sqlite.db")
+        file.save(upload_path)
+
+        # Rodar o script de migração
+        script_path = os.path.join(os.path.dirname(__file__), "scripts", "sqlite_to_postgres.py")
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            flash("DATABASE_URL não configurado.", "danger")
+            return redirect(request.url)
+        try:
+            # Executa o script como subprocesso
+            result = subprocess.run([
+                "python3", script_path,
+                "--sqlite", upload_path,
+                "--pg", db_url
+            ], capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                flash("Migração concluída com sucesso!", "success")
+                flash(result.stdout, "info")
+            else:
+                flash("Erro ao migrar: " + result.stderr, "danger")
+        except Exception as e:
+            flash(f"Erro ao executar migração: {e}", "danger")
+        return redirect(request.url)
+
+    return render_template("admin_importar_sqlite.html")
 
 import os
 
@@ -92,10 +147,13 @@ else:
     DATABASE_URL = "sqlite:///metrifiy.db"
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 
+
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.secret_key = os.environ.get("SECRET_KEY", "metrifypremium-secret")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["DEBUG"] = True
+app.debug = True
 
 metadata = MetaData()
 

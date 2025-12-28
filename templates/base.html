@@ -806,6 +806,11 @@
             <i class="bi bi-sliders2-vertical icon-sistema"></i>
             <span>Configurações</span>
           </a>
+          <a href="{{ url_for('admin_importar_sqlite') }}" class="nav-link {% if request.endpoint == 'admin_importar_sqlite' %}active{% endif %}" data-search="importar sqlite banco dados">
+            <i class="bi bi-database icon-sistema"></i>
+            <span>Importar SQLite (Migração)</span>
+            <span class="nav-badge badge-new">NEW</span>
+          </a>
           <a href="{{ url_for('logout_view') }}" class="nav-link" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;" data-search="sair logout deslogar">
             <i class="bi bi-box-arrow-right icon-sistema"></i>
             <span>Sair</span>
