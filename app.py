@@ -323,6 +323,27 @@ def admin_backup_download(filename):
 
     return send_file(filepath, as_attachment=True, download_name=filename)
 
+
+@app.route('/import_status', methods=['GET'])
+@login_required
+def import_status_list():
+    """Lista arquivos de status de importação (uploads/import_status_*.json)."""
+    status_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
+    files = []
+    try:
+        for name in os.listdir(status_dir):
+            if name.startswith('import_status_') and name.endswith('.json'):
+                path = os.path.join(status_dir, name)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {"ok": False, "error": "failed to read file"}
+                files.append({"filename": name, "content": data})
+    except Exception:
+        files = []
+    return jsonify(files)
+
 # === End backup routes ===
 
 
@@ -2272,27 +2293,15 @@ def importar_ml_view():
         # Rodar importação em background para evitar timeouts
         lote_id = datetime.now().isoformat(timespec="seconds")
 
-        def _worker(path, lote):
-            status_path = os.path.join(app.config["UPLOAD_FOLDER"], f"import_status_{lote.replace(':','-')}.json")
-            try:
-                resumo = importar_vendas_ml(path, engine, lote_id=lote)
-                result = {"ok": True, "resumo": resumo}
-                with open(status_path, "w", encoding="utf-8") as f:
-                    json.dump(result, f, ensure_ascii=False)
-                print(f"Import finished: {resumo}")
-            except Exception as e:
-                err = {"ok": False, "error": str(e)}
-                try:
-                    with open(status_path, "w", encoding="utf-8") as f:
-                        json.dump(err, f, ensure_ascii=False)
-                except Exception:
-                    pass
-                print(f"Import error: {e}")
-
-        t = threading.Thread(target=_worker, args=(caminho, lote_id), daemon=True)
-        t.start()
-
-        flash(f"Importação iniciada em background (lote {lote_id}). Verifique logs ou o arquivo de status em {app.config['UPLOAD_FOLDER']}", "info")
+        # Run import in separate process to avoid SQLite thread issues and worker timeouts
+        try:
+            python_exec = sys.executable
+            script_path = os.path.join(os.path.dirname(__file__), "scripts", "import_worker.py")
+            # Use Popen and detach
+            subprocess.Popen([python_exec, script_path, caminho, lote_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            flash(f"Importação iniciada em background (lote {lote_id}). Verifique o arquivo de status em {app.config['UPLOAD_FOLDER']}", "info")
+        except Exception as e:
+            flash(f"Falha ao iniciar importação em background: {e}", "danger")
         return redirect(url_for("importar_ml_view"))
 
     return render_template("importar_ml.html")
