@@ -19,6 +19,7 @@ from sqlalchemy import (
     ForeignKey, func, select, insert, update, delete, inspect, text
 )
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 import pandas as pd
 import logging
 import sys
@@ -129,7 +130,14 @@ if raw_db_url:
         pool_timeout=30,
     )
 else:
-    engine: Engine = create_engine(DATABASE_URL, future=True)
+    # SQLite in multi-threaded context: allow connections from different threads
+    # and avoid connection pooling which can cause 'SQLite objects created in a thread can only be used in that same thread'.
+    engine: Engine = create_engine(
+        DATABASE_URL,
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=NullPool,
+    )
 
 # Inicializa Flask-Login e Bcrypt
 bcrypt = Bcrypt(app)
