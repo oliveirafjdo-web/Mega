@@ -969,8 +969,13 @@ def normalize_df_uf(df):
 # --------------------------------------------------------------------
 # Importação de vendas do Mercado Livre
 # --------------------------------------------------------------------
-def importar_vendas_ml(caminho_arquivo, engine: Engine):
-    lote_id = datetime.now().isoformat(timespec="seconds")
+def importar_vendas_ml(caminho_arquivo, engine: Engine, lote_id=None, chunk_size=200):
+    """Importa vendas a partir de planilha Excel.
+
+    chunk_size: número de linhas processadas por transação (reduz tempo em uma única transação).
+    lote_id: opcional, id do lote (se não fornecido é gerado).
+    """
+    lote_id = lote_id or datetime.now().isoformat(timespec="seconds")
 
     df = pd.read_excel(
         caminho_arquivo,
@@ -1011,9 +1016,15 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
         if sku_temp and titulo_temp and titulo_temp not in titulo_para_sku:
             titulo_para_sku[titulo_temp] = sku_temp
 
-    with engine.begin() as conn:
-        for _, row in df.iterrows():
-            sku = str(row.get("SKU") or "").strip()
+    # Processar em chunks para reduzir tempo de transação e evitar timeouts
+    total_rows = len(df)
+    for start in range(0, total_rows, chunk_size):
+        end = min(start + chunk_size, total_rows)
+        subdf = df.iloc[start:end]
+
+        with engine.begin() as conn:
+            for _, row in subdf.iterrows():
+                sku = str(row.get("SKU") or "").strip()
             titulo = str(row.get("Título do anúncio") or "").strip()
             numero_venda = str(row.get("N.º de venda") or "")
 
@@ -1148,22 +1159,22 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine):
                     estado = sigla
                 # Se não conseguiu, não há fallback - deixa None
 
-            conn.execute(
-                insert(vendas).values(
-                    produto_id=produto_id,
-                    data_venda=data_venda.isoformat() if data_venda else None,
-                    quantidade=unidades,
-                    preco_venda_unitario=preco_medio_venda,
-                    receita_total=receita_total,
-                    comissao_ml=comissao_ml,
-                    custo_total=custo_total,
-                    margem_contribuicao=margem_contribuicao,
-                    origem="Mercado Livre",
-                    numero_venda_ml=numero_venda_ml,
-                    lote_importacao=lote_id,
-                    estado=estado,
+                conn.execute(
+                    insert(vendas).values(
+                        produto_id=produto_id,
+                        data_venda=data_venda.isoformat() if data_venda else None,
+                        quantidade=unidades,
+                        preco_venda_unitario=preco_medio_venda,
+                        receita_total=receita_total,
+                        comissao_ml=comissao_ml,
+                        custo_total=custo_total,
+                        margem_contribuicao=margem_contribuicao,
+                        origem="Mercado Livre",
+                        numero_venda_ml=numero_venda_ml,
+                        lote_importacao=lote_id,
+                        estado=estado,
+                    )
                 )
-            )
 
             # --- Insere lançamento financeiro no caixa Mercado Pago (valor líquido) ---
             try:
@@ -2250,21 +2261,31 @@ def importar_ml_view():
         filename = secure_filename(file.filename)
         caminho = os.path.join(app.config["UPLOAD_FOLDER"], filename)
         file.save(caminho)
+            # Rodar importação em background para evitar timeouts
+            lote_id = datetime.now().isoformat(timespec="seconds")
 
-        try:
-            resumo = importar_vendas_ml(caminho, engine)
-            msg = (
-                f"Importação concluída. Lote {resumo['lote_id']} - "
-                f"{resumo['vendas_importadas']} vendas importadas, "
-                f"{resumo['vendas_sem_sku']} sem SKU/Título, "
-                f"{resumo['vendas_sem_produto']} sem produto cadastrado."
-            )
-            if resumo.get('relatorio_gerado') and resumo.get('relatorio_filename'):
-                msg += f' 📥 <a href="/download_relatorio/{resumo["relatorio_filename"]}" class="alert-link">Baixar relatório Excel</a>'
-            flash(msg, "success")
-        except Exception as e:
-            flash(f"Erro na importação: {e}", "danger")
-        return redirect(url_for("importar_ml_view"))
+            def _worker(path, lote):
+                status_path = os.path.join(app.config["UPLOAD_FOLDER"], f"import_status_{lote.replace(':','-')}.json")
+                try:
+                    resumo = importar_vendas_ml(path, engine, lote_id=lote)
+                    result = {"ok": True, "resumo": resumo}
+                    with open(status_path, "w", encoding="utf-8") as f:
+                        json.dump(result, f, ensure_ascii=False)
+                    print(f"Import finished: {resumo}")
+                except Exception as e:
+                    err = {"ok": False, "error": str(e)}
+                    try:
+                        with open(status_path, "w", encoding="utf-8") as f:
+                            json.dump(err, f, ensure_ascii=False)
+                    except Exception:
+                        pass
+                    print(f"Import error: {e}")
+
+            t = threading.Thread(target=_worker, args=(caminho, lote_id), daemon=True)
+            t.start()
+
+            flash(f"Importação iniciada em background (lote {lote_id}). Verifique logs ou o arquivo de status em {app.config['UPLOAD_FOLDER']}", "info")
+            return redirect(url_for("importar_ml_view"))
 
     return render_template("importar_ml.html")
 
