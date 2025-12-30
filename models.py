@@ -53,6 +53,8 @@ def lista_vendas():
                 vendas.c.lote_importacao.label("lote_importacao"),
                 func.count().label("qtd_vendas"),
                 func.coalesce(func.sum(vendas.c.receita_total), 0).label("receita_lote"),
+                func.min(vendas.c.data_venda).label("primeira_data"),
+                func.max(vendas.c.data_venda).label("ultima_data"),
             )
             .where(vendas.c.lote_importacao.isnot(None))
         )
@@ -66,6 +68,9 @@ def lista_vendas():
             )
 
         query_lotes = query_lotes.group_by(vendas.c.lote_importacao)
+        # Ordena lotes pela primeira data de venda (ordem de importação).
+        # Por padrão exibimos os lotes mais recentes primeiro.
+        query_lotes = query_lotes.order_by(func.min(vendas.c.data_venda).desc())
         lotes = conn.execute(query_lotes).mappings().all()
 
     # ======================================================
