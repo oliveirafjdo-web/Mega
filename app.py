@@ -1054,139 +1054,142 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine, lote_id=None, chunk_size
         with engine.begin() as conn:
             for _, row in subdf.iterrows():
                 sku = str(row.get("SKU") or "").strip()
-            titulo = str(row.get("Título do anúncio") or "").strip()
-            numero_venda = str(row.get("N.º de venda") or "")
+                titulo = str(row.get("Título do anúncio") or "").strip()
+                numero_venda = str(row.get("N.º de venda") or "")
+                # Inicializações defensivas para evitar UnboundLocalError em exceções
+                receita_total = 0.0
+                numero_venda_ml = numero_venda
 
-            # Se não tiver SKU mas tiver título, busca SKU de outra linha com mesmo título
-            if not sku and titulo and titulo in titulo_para_sku:
-                sku = titulo_para_sku[titulo]
-                print(f"[AUTO-PREENCHIMENTO] SKU '{sku}' encontrado para título '{titulo[:50]}...'")
+                # Se não tiver SKU mas tiver título, busca SKU de outra linha com mesmo título
+                if not sku and titulo and titulo in titulo_para_sku:
+                    sku = titulo_para_sku[titulo]
+                    print(f"[AUTO-PREENCHIMENTO] SKU '{sku}' encontrado para título '{titulo[:50]}...'")
 
-            produto_row = None
+                produto_row = None
 
-            if sku:
-                produto_row = conn.execute(
-                    select(produtos.c.id, produtos.c.custo_unitario)
-                    .where(produtos.c.sku == sku)
-                ).mappings().first()
-            else:
-                # tenta pelo nome do produto = título do anúncio
-                if titulo:
+                if sku:
                     produto_row = conn.execute(
                         select(produtos.c.id, produtos.c.custo_unitario)
-                        .where(produtos.c.nome == titulo)
+                        .where(produtos.c.sku == sku)
                     ).mappings().first()
+                else:
+                    # tenta pelo nome do produto = título do anúncio
+                    if titulo:
+                        produto_row = conn.execute(
+                            select(produtos.c.id, produtos.c.custo_unitario)
+                            .where(produtos.c.nome == titulo)
+                        ).mappings().first()
 
-            if not sku and not produto_row:
-                vendas_sem_sku += 1
-                vendas_sem_sku_lista.append({
-                    "numero_venda": numero_venda,
-                    "titulo": titulo if titulo else "(sem título)",
-                    "sku": "(vazio)"
-                })
-                continue
+                if not sku and not produto_row:
+                    vendas_sem_sku += 1
+                    vendas_sem_sku_lista.append({
+                        "numero_venda": numero_venda,
+                        "titulo": titulo if titulo else "(sem título)",
+                        "sku": "(vazio)"
+                    })
+                    continue
 
-            if not produto_row:
-                vendas_sem_produto += 1
-                vendas_sem_produto_lista.append({
-                    "numero_venda": numero_venda,
-                    "titulo": titulo if titulo else "(sem título)",
-                    "sku": sku if sku else "(vazio)"
-                })
-                continue
+                if not produto_row:
+                    vendas_sem_produto += 1
+                    vendas_sem_produto_lista.append({
+                        "numero_venda": numero_venda,
+                        "titulo": titulo if titulo else "(sem título)",
+                        "sku": sku if sku else "(vazio)"
+                    })
+                    continue
 
-            produto_id = produto_row["id"]
-            custo_unitario = float(produto_row["custo_unitario"] or 0.0)
+                produto_id = produto_row["id"]
+                custo_unitario = float(produto_row["custo_unitario"] or 0.0)
 
-            data_venda_raw = row.get("Data da venda")
-            data_venda = parse_data_venda(data_venda_raw)
-            unidades = row.get("Unidades")
-            try:
-                unidades = int(unidades) if unidades == unidades else 0
-            except Exception:
-                unidades = 0
+                data_venda_raw = row.get("Data da venda")
+                data_venda = parse_data_venda(data_venda_raw)
+                unidades = row.get("Unidades")
+                try:
+                    unidades = int(unidades) if unidades == unidades else 0
+                except Exception:
+                    unidades = 0
 
-            # Receita Bruta = Receita por produtos (BRL)
-            receita_bruta = row.get("Receita por produtos (BRL)")
-            try:
-                receita_total = float(receita_bruta) if receita_bruta == receita_bruta else 0.0
-            except Exception:
-                receita_total = 0.0
-            
-            # Verificar se a venda está cancelada por outras colunas (Status, etc)
-            status_venda = str(row.get("Status") or "").strip().lower()
-            status_envio = str(row.get("Status do envio") or "").strip().lower()
-            
-            # Considerar cancelada se:
-            # 1. Receita <= 0
-            # 2. Status contém "cancelad" ou "cancelled"
-            # 3. Status de envio é "not_specified" com receita zero ou negativa
-            venda_cancelada = (
-                receita_total <= 0 or 
-                "cancelad" in status_venda or 
-                "cancelled" in status_venda or
-                (status_envio == "not_specified" and receita_total <= 0)
-            )
-            
-            if venda_cancelada and receita_total != 0:
-                print(f"[CANCELADA POR STATUS] Venda {row.get('N.º de venda')} - Status: {status_venda} - Receita: R$ {receita_total}")
-                receita_total = 0.0  # Forçar receita zero para vendas canceladas
+                # Receita Bruta = Receita por produtos (BRL)
+                receita_bruta = row.get("Receita por produtos (BRL)")
+                try:
+                    receita_total = float(receita_bruta) if receita_bruta == receita_bruta else 0.0
+                except Exception:
+                    receita_total = 0.0
+                
+                # Verificar se a venda está cancelada por outras colunas (Status, etc)
+                status_venda = str(row.get("Status") or "").strip().lower()
+                status_envio = str(row.get("Status do envio") or "").strip().lower()
+                
+                # Considerar cancelada se:
+                # 1. Receita <= 0
+                # 2. Status contém "cancelad" ou "cancelled"
+                # 3. Status de envio é "not_specified" com receita zero ou negativa
+                venda_cancelada = (
+                    receita_total <= 0 or 
+                    "cancelad" in status_venda or 
+                    "cancelled" in status_venda or
+                    (status_envio == "not_specified" and receita_total <= 0)
+                )
+                
+                if venda_cancelada and (locals().get('receita_total') is not None and receita_total != 0):
+                    rtot = locals().get('receita_total')
+                    print(f"[CANCELADA POR STATUS] Venda {row.get('N.º de venda')} - Status: {status_venda} - Receita: R$ {rtot}")
+                    receita_total = 0.0  # Forçar receita zero para vendas canceladas
 
-            # Captura Preço unitário para vendas canceladas
-            preco_unitario = row.get("Preço")
-            try:
-                preco_unit = float(preco_unitario) if preco_unitario == preco_unitario else 0.0
-            except Exception:
-                preco_unit = 0.0
-            
-            # Determinar o preço médio de venda
-            if receita_total > 0:
-                # Venda normal, calcula pela receita
-                preco_medio_venda = receita_total / unidades if unidades > 0 else 0.0
-            elif preco_unit > 0 and unidades > 0:
-                # Venda cancelada: usa coluna "Preço" (valor unitário original)
-                preco_medio_venda = preco_unit
-                print(f"[VENDA CANCELADA] Usando Preço unitário: R$ {preco_unit} x {unidades} = R$ {preco_unit * unidades}")
-            else:
-                # Busca preço de venda sugerido do produto
-                preco_sugerido = conn.execute(
-                    select(produtos.c.preco_venda_sugerido)
-                    .where(produtos.c.id == produto_id)
-                ).scalar()
-                preco_medio_venda = float(preco_sugerido or 0.0)
-                if receita_total == 0:
-                    print(f"[VENDA CANCELADA] Usando preço sugerido: R$ {preco_medio_venda}")
+                # Captura Preço unitário para vendas canceladas
+                preco_unitario = row.get("Preço")
+                try:
+                    preco_unit = float(preco_unitario) if preco_unitario == preco_unitario else 0.0
+                except Exception:
+                    preco_unit = 0.0
+                
+                # Determinar o preço médio de venda
+                if receita_total > 0:
+                    # Venda normal, calcula pela receita
+                    preco_medio_venda = receita_total / unidades if unidades > 0 else 0.0
+                elif preco_unit > 0 and unidades > 0:
+                    # Venda cancelada: usa coluna "Preço" (valor unitário original)
+                    preco_medio_venda = preco_unit
+                    print(f"[VENDA CANCELADA] Usando Preço unitário: R$ {preco_unit} x {unidades} = R$ {preco_unit * unidades}")
+                else:
+                    # Busca preço de venda sugerido do produto
+                    preco_sugerido = conn.execute(
+                        select(produtos.c.preco_venda_sugerido)
+                        .where(produtos.c.id == produto_id)
+                    ).scalar()
+                    preco_medio_venda = float(preco_sugerido or 0.0)
+                    if receita_total == 0:
+                        print(f"[VENDA CANCELADA] Usando preço sugerido: R$ {preco_medio_venda}")
 
-            # Comissão Mercado Livre a partir da coluna 'Tarifa de venda e impostos (BRL)'
-            tarifa = row.get("Tarifa de venda e impostos (BRL)")
-            try:
-                comissao_ml = float(tarifa) if tarifa == tarifa else 0.0
-            except Exception:
-                comissao_ml = 0.0
-            if comissao_ml < 0:
-                comissao_ml = -comissao_ml
+                # Comissão Mercado Livre a partir da coluna 'Tarifa de venda e impostos (BRL)'
+                tarifa = row.get("Tarifa de venda e impostos (BRL)")
+                try:
+                    comissao_ml = float(tarifa) if tarifa == tarifa else 0.0
+                except Exception:
+                    comissao_ml = 0.0
+                if comissao_ml < 0:
+                    comissao_ml = -comissao_ml
 
-            # Receita Líquida = Receita por produtos (BRL) - Tarifa de venda e impostos (BRL)
-            receita_liquida = receita_total - comissao_ml
-            custo_total = custo_unitario * unidades
-            margem_contribuicao = receita_liquida - custo_total
-            numero_venda_ml = str(row.get("N.º de venda"))
-            estado = None
-            
-            # Procurar coluna de estado/UF de forma mais flexível (case-insensitive)
-            col_estado = None
-            for col in df.columns:
-                col_lower = str(col).lower().strip()
-                if any(term in col_lower for term in ["estado", "uf", "state", "state do cliente", "estado do comprador"]):
-                    col_estado = col
-                    break
-            
-            if col_estado and row.get(col_estado):
-                estado_raw = row.get(col_estado)
-                sigla = normalize_uf(estado_raw)
-                if sigla and isinstance(sigla, str) and len(sigla) == 2:
-                    estado = sigla
-                # Se não conseguiu, não há fallback - deixa None
+                # Receita Líquida = Receita por produtos (BRL) - Tarifa de venda e impostos (BRL)
+                receita_liquida = receita_total - comissao_ml
+                custo_total = custo_unitario * unidades
+                margem_contribuicao = receita_liquida - custo_total
+                numero_venda_ml = str(row.get("N.º de venda"))
+                estado = None
+                
+                # Procurar coluna de estado/UF de forma mais flexível (case-insensitive)
+                col_estado = None
+                for col in df.columns:
+                    col_lower = str(col).lower().strip()
+                    if any(term in col_lower for term in ["estado", "uf", "state", "state do cliente", "estado do comprador"]):
+                        col_estado = col
+                        break
+                
+                if col_estado and row.get(col_estado):
+                    estado_raw = row.get(col_estado)
+                    sigla = normalize_uf(estado_raw)
+                    if sigla and isinstance(sigla, str) and len(sigla) == 2:
+                        estado = sigla
 
                 conn.execute(
                     insert(vendas).values(
@@ -1231,7 +1234,8 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine, lote_id=None, chunk_size
                         )
                     )
             except Exception as e:
-                print(f"Erro ao inserir transação financeira para venda {numero_venda_ml}: {e}")
+                num = locals().get('numero_venda_ml') or locals().get('numero_venda') or '(desconhecido)'
+                print(f"Erro ao inserir transação financeira para venda {num}: {e}")
 
             # Só deduz estoque se a venda NÃO for cancelada (receita_total > 0)
             if receita_total > 0:
@@ -1241,7 +1245,8 @@ def importar_vendas_ml(caminho_arquivo, engine: Engine, lote_id=None, chunk_size
                     .values(estoque_atual=produtos.c.estoque_atual - unidades)
                 )
             else:
-                print(f"[VENDA CANCELADA] Venda {numero_venda_ml} com receita R$ 0 - ESTOQUE NÃO DEDUZIDO")
+                num = locals().get('numero_venda_ml') or locals().get('numero_venda') or '(desconhecido)'
+                print(f"[VENDA CANCELADA] Venda {num} com receita R$ 0 - ESTOQUE NÃO DEDUZIDO")
 
             vendas_importadas += 1
 
